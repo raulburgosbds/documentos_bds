@@ -2,11 +2,55 @@
 
 Este documento define las especificaciones técnicas y el procedimiento detallado para la implementación del recurso de **Certificaciones** en el microservicio `people-center`.
 
+---
+
+## Tabla de Contenidos
+
+1. [Estructura del Proyecto](#estructura-del-proyecto)
+2. [Modelo de Datos](#modelo-de-datos)
+   - [Diagrama de Relaciones](#diagrama-de-relaciones)
+   - [Diagrama Entidad-Relación](#diagrama-entidad-relación)
+   - [Cardinalidad y Relaciones](#cardinalidad-y-relaciones)
+3. [Procedimiento de Implementación](#procedimiento-de-implementación)
+   - [1. Migración de Esquema de Base de Datos](#1-migración-de-esquema-de-base-de-datos)
+   - [2. Definición de Entidades JPA](#2-definición-de-entidades-jpa)
+     - [Diagrama de Clases](#diagrama-de-clases)
+     - [2.1. Entidad CertificationEntity](#21-entidad-certificationentity)
+     - [2.2. Entidad PersonCertificationEntity](#22-entidad-personcertificationentity)
+     - [2.3. Actualización de PersonEntity](#23-actualización-de-personentity)
+   - [3. Definición de Repositorios](#3-definición-de-repositorios)
+     - [3.1. CertificationRepository](#31-certificationrepository)
+     - [3.2. PersonCertificationRepository](#32-personcertificationrepository)
+   - [4. Definición de Modelos de Transferencia de Datos (DTOs)](#4-definición-de-modelos-de-transferencia-de-datos-dtos)
+     - [4.1. Certification.java](#41-certificationjava)
+     - [4.2. PersonCertification.java](#42-personcertificationjava)
+     - [4.3. CreatePersonCertificationRequest.java](#43-createpersoncertificationrequestjava)
+   - [5. Actualización de la Librería Compartida](#5-actualización-de-la-librería-compartida)
+     - [5.1. Definición de Constantes de Ruta](#51-definición-de-constantes-de-ruta)
+     - [5.2. Justificación Arquitectónica](#52-justificación-arquitectónica)
+     - [5.3. Ejemplo de Implementación en Clientes](#53-ejemplo-de-implementación-en-clientes)
+     - [5.4. Extensiones Potenciales de la Librería](#54-extensiones-potenciales-de-la-librería)
+       - [A. Inclusión en DTO Person](#a-inclusión-en-dto-person)
+       - [B. Enum CertificationType](#b-enum-certificationtype)
+       - [C. Cliente HTTP (PeopleCenterClient)](#c-cliente-http-peoplecenterclient)
+       - [Matriz de Decisión: Extensiones Opcionales](#matriz-de-decisión-extensiones-opcionales)
+   - [6. Implementación del Mapper](#6-implementación-del-mapper)
+   - [7. Implementación de la Capa de Servicio](#7-implementación-de-la-capa-de-servicio)
+     - [7.1. Implementación Concreta](#71-implementación-concreta)
+   - [8. Implementación del Controlador REST](#8-implementación-del-controlador-rest)
+   - [9. Manejo de Excepciones](#9-manejo-de-excepciones)
+   - [10. Verificación y Pruebas](#10-verificación-y-pruebas)
+     - [10.1. Pruebas Unitarias (Service)](#101-pruebas-unitarias-service)
+     - [10.2. Pruebas de Integración (Controller)](#102-pruebas-de-integración-controller)
+4. [Conclusión](#conclusión)
+
+---
+
 ## Estructura del Proyecto
 
 El proyecto adhiere a la arquitectura en capas estándar de Spring Boot:
 
-```
+```text
 microservice/src/main/java/ar/com/bds/people/center/
 ├── controller/     # Controladores REST
 ├── service/        # Lógica de negocio
@@ -125,11 +169,11 @@ CREATE TABLE IF NOT EXISTS `person_certification`
 -- Datos semilla iniciales (sujetos a definición final)
 INSERT INTO `certification` (`code`, `name`, `created_at`)
 VALUES ('CERT_IVA', 'Certificación IVA', NOW()),
-       ('CERT_GANANCIAS', 'Certificación Ganancias', NOW());
+    ('CERT_GANANCIAS', 'Certificación Ganancias', NOW());
 ```
 
 > [!NOTE]
-> Los códigos y nombres de las certificaciones deben alinearse con los requerimientos definidos por el área de Impuestos.
+> Para este caso, los códigos y nombres de las certificaciones deben alinearse con los requerimientos definidos por el área correspondiente del banco, puesto que actualmente no se tiene definidos se usaron semmillas iniciales aleatorias.
 
 ---
 
@@ -353,10 +397,10 @@ public interface PersonCertificationRepository extends JpaRepository<PersonCerti
     Optional<PersonCertificationEntity> findByIdAndPersonId_Id(Integer id, Long personId);
     
     @Query("SELECT pc FROM PersonCertificationEntity pc " +
-           "WHERE pc.personId.id = :personId " +
-           "AND pc.deletedAt IS NULL " +
-           "AND (pc.startDate IS NULL OR pc.startDate <= :now) " +
-           "AND (pc.endDate IS NULL OR pc.endDate >= :now)")
+        "WHERE pc.personId.id = :personId " +
+        "AND pc.deletedAt IS NULL " +
+        "AND (pc.startDate IS NULL OR pc.startDate <= :now) " +
+        "AND (pc.endDate IS NULL OR pc.endDate >= :now)")
     List<PersonCertificationEntity> findValidCertifications(
         @Param("personId") Long personId, 
         @Param("now") ZonedDateTime now
@@ -371,7 +415,24 @@ public interface PersonCertificationRepository extends JpaRepository<PersonCerti
 > [!IMPORTANT]
 > Los DTOs deben definirse en el módulo `library/model` para asegurar su disponibilidad para los clientes del servicio.
 
-**Ubicación:** `library/model/src/main/java/ar/com/bds/lib/peoplecenter/model/`
+**Estructura de ubicación de DTOs:**
+
+```
+library/model/src/main/java/ar/com/bds/lib/peoplecenter/model/
+├── Certification.java              # DTO de respuesta (catálogo)
+├── PersonCertification.java        # DTO de respuesta (recurso principal)
+└── requests/
+    └── CreatePersonCertificationRequest.java  # DTO de request (creación)
+```
+
+> [!NOTE]
+> **Convención de ubicación:**
+>
+> - **DTOs de Respuesta**: Se ubican directamente en `model/` (ej: `Certification.java`, `PersonCertification.java`).
+> - **DTOs de Request**: Se ubican en el subdirectorio `model/requests/` (ej: `CreatePersonCertificationRequest.java`).
+> - Esta convención facilita la distinción entre modelos de entrada y salida de la API.
+
+**Ubicación base:** `library/model/src/main/java/ar/com/bds/lib/peoplecenter/model/`
 
 #### 4.1. `Certification.java`
 
@@ -536,25 +597,204 @@ public List<PersonCertification> getPersonCertifications(Long personId) {
 
 #### 5.4. Extensiones Potenciales de la Librería
 
-Dependiendo de los requerimientos específicos de integración, se pueden considerar las siguientes extensiones:
+Dependiendo de los requerimientos específicos de integración, se pueden considerar las siguientes extensiones opcionales:
 
-**A. Inclusión en DTO `Person`**
+##### A. Inclusión en DTO `Person`
 
-- **Descripción:** Agregar la lista de certificaciones al DTO principal `Person`.
-- **Caso de Uso:** Cuando se requiere que el endpoint `GET /v2/people/{id}` retorne la información completa de la persona, incluyendo sus certificaciones.
+**Ubicación:** `library/model/src/main/java/ar/com/bds/lib/peoplecenter/model/Person.java`
 
-**B. Enum `CertificationType`**
+El DTO `Person` contiene listas de todos los sub-recursos (addresses, contacts, documents, etc.). Se puede agregar la lista de certificaciones para mantener consistencia:
 
-- **Descripción:** Crear un Enum para los códigos de certificación.
-- **Caso de Uso:** Cuando el conjunto de códigos de certificación es estático y se requiere validación estricta en tiempo de compilación.
+```java
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Person implements HasId {
 
-**C. Métodos en `PeopleCenterClient`**
+// ... campos existentes ...
 
-- **Descripción:** Agregar métodos específicos en el cliente HTTP compartido.
-- **Caso de Uso:** Cuando múltiples microservicios requieren consumir el endpoint de certificaciones, evitando la duplicación de lógica de cliente.
+@Valid
+@Builder.Default
+private List<TaxpayersProfile> taxpayersProfiles = new ArrayList<>();
 
-> [!TIP]
-> Se recomienda iniciar la implementación sin estas extensiones opcionales, incorporándolas únicamente cuando se identifique una necesidad concreta en el proyecto.
+// Agregar esta nueva lista (OPCIONAL)
+@Valid
+@Builder.Default
+private List<PersonCertification> certifications = new ArrayList<>();
+
+@Valid
+@Builder.Default
+private List<Document> documents = new ArrayList<>();
+
+// ... resto de campos ...
+}
+```
+
+**Criterios de Implementación:**
+
+```mermaid
+flowchart TD
+A[Evaluar Necesidad de<br/>Certificaciones en Person] --> B{GET /people incluye<br/>certificaciones?}
+B -->|Sí| C[IMPLEMENTAR]
+B -->|No| D{Acceso solo vía<br/>/certifications?}
+D -->|Sí| E[NO IMPLEMENTAR]
+D -->|No| F{Otros servicios<br/>requieren datos completos?}
+F -->|Sí| C
+F -->|No| G{Mantener consistencia<br/>con sub-recursos?}
+G -->|Sí| C
+G -->|No| E
+
+style C fill:#164503
+style E fill:#D20103
+```
+
+**Análisis de Impacto:**
+
+- **Ventaja:** Datos completos disponibles en una sola llamada HTTP
+- **Consideración:** Incremento en el tamaño del payload en `GET /people/{id}`
+
+##### B. Enum `CertificationType`
+
+**Ubicación:** `library/model/src/main/java/ar/com/bds/lib/peoplecenter/model/enums/CertificationType.java`
+
+Si los códigos de certificación son fijos y conocidos, se recomienda crear un enum:
+
+```java
+package ar.com.bds.lib.peoplecenter.model.enums;
+
+public enum CertificationType {
+CERT_IVA("Certificación IVA"),
+CERT_GANANCIAS("Certificación Ganancias"),
+CERT_INGRESOS_BRUTOS("Certificación Ingresos Brutos"),
+CERT_SUSS("Certificación SUSS");
+
+private final String description;
+
+CertificationType(String description) {
+    this.description = description;
+}
+
+public String getDescription() {
+    return description;
+}
+}
+```
+
+**Criterios de Implementación:**
+
+```mermaid
+flowchart TD
+A[Evaluar Necesidad de<br/>CertificationType Enum] --> B{Códigos son<br/>fijos?}
+B -->|Sí| C[IMPLEMENTAR]
+B -->|No| D{Códigos dinámicos<br/>desde BD?}
+D -->|Sí| E[NO IMPLEMENTAR<br/>Usar String]
+D -->|No| F{Requiere validación<br/>estricta?}
+F -->|Sí| C
+F -->|No| G{Códigos cambian<br/>frecuentemente?}
+G -->|Sí| E
+G -->|No| C
+
+style C fill:#164503
+style E fill:#D20103
+```
+
+**Análisis de Impacto:**
+
+- **Ventaja:** Type-safety, autocompletado en IDEs
+- **Consideración:** Menor flexibilidad, requiere recompilación para nuevos tipos
+
+##### C. Cliente HTTP (`PeopleCenterClient`)
+
+**Ubicación:** `library/client/src/main/java/ar/com/bds/lib/peoplecenter/client/PeopleCenterClient.java`
+
+Si múltiples microservicios requieren consumir el endpoint, se recomienda agregar métodos al cliente HTTP compartido:
+
+```java
+package ar.com.bds.lib.peoplecenter.client;
+
+import ar.com.bds.lib.peoplecenter.api.PathV2;
+import ar.com.bds.lib.peoplecenter.model.PersonCertification;
+import ar.com.bds.lib.peoplecenter.model.requests.CreatePersonCertificationRequest;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpMethod;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.List;
+
+@Component
+public class PeopleCenterClient {
+
+private final RestTemplate restTemplate;
+private final String baseUrl;
+
+// ... constructor y otros métodos ...
+
+// Métodos para gestión de certificaciones (OPCIONAL)
+
+public Integer createCertification(Long personId, CreatePersonCertificationRequest request) {
+    String url = baseUrl + PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString());
+    return restTemplate.postForObject(url, request, Integer.class);
+}
+
+public List<PersonCertification> getCertifications(Long personId) {
+    String url = baseUrl + PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString());
+    return restTemplate.exchange(
+        url,
+        HttpMethod.GET,
+        null,
+        new ParameterizedTypeReference<List<PersonCertification>>() {}
+    ).getBody();
+}
+
+public PersonCertification getCertificationById(Long personId, Integer certificationId) {
+    String url = baseUrl + PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString()) 
+        + "/" + certificationId;
+    return restTemplate.getForObject(url, PersonCertification.class);
+}
+
+public void deleteCertification(Long personId, Integer certificationId) {
+    String url = baseUrl + PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString()) 
+        + "/" + certificationId;
+    restTemplate.delete(url);
+}
+}
+```
+
+**Criterios de Implementación:**
+
+```mermaid
+flowchart TD
+A[Evaluar Necesidad de<br/>PeopleCenterClient] --> B{Múltiples servicios<br/>consumirán endpoint?}
+B -->|Sí| C[IMPLEMENTAR]
+B -->|No| D{Solo un servicio<br/>lo usará?}
+D -->|Sí| E[NO IMPLEMENTAR<br/>Cliente propio]
+D -->|No| F{Estandarizar<br/>consumo de API?}
+F -->|Sí| C
+F -->|No| G{Equipos requieren<br/>implementaciones específicas?}
+G -->|Sí| E
+G -->|No| C
+
+style C fill:#164503
+style E fill:#D20103
+```
+
+**Análisis de Impacto:**
+
+- **Ventaja:** Código reutilizable, reducción de duplicación
+- **Consideración:** Dependencia adicional para los servicios consumidores
+
+##### Matriz de Decisión: Extensiones Opcionales
+
+| Extensión | Prioridad | Criterio de Implementación | Ubicación |
+|-----------|-----------|----------------------------|-----------|
+| **Person.java** | Media | Certificaciones requeridas en `GET /people/{id}` | `model/Person.java` |
+| **CertificationType Enum** | Baja | Códigos fijos con validación estricta | `model/enums/CertificationType.java` |
+| **Cliente HTTP** | Baja | Consumo por múltiples microservicios | `client/PeopleCenterClient.java` |
+
+> [!NOTE]
+> Se recomienda iniciar la implementación sin estas extensiones opcionales, incorporándolas únicamente cuando se identifique una necesidad concreta documentada en los requerimientos del proyecto.
 
 ---
 
@@ -646,54 +886,91 @@ public class PersonCertificationServiceImpl implements PersonCertificationServic
     @Override
     @Transactional
     public Integer create(Long personId, CreatePersonCertificationRequest request) {
-        log.info("Creando certificación para persona id: {} con código: {}", personId, request.getCertificationCode());
+        log.info("Creating certification for person: {}", personId);
 
+        // Validaciones
+        validateRequest(request);
+
+        // Verificar que la persona existe
         PersonEntity person = peopleCenterRepository.findById(personId)
-                .orElseThrow(() -> new ResourceNotFoundException("Persona no encontrada con id: " + personId));
+                .orElseThrow(() -> new ResourceNotFoundException("Person not found with id: " + personId));
 
+        // Verificar que el código de certificación existe y está vigente
         CertificationEntity certification = certificationRepository.findByCode(request.getCertificationCode())
-                .orElseThrow(() -> new ResourceNotFoundException("Certificación no encontrada con código: " + request.getCertificationCode()));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Certification not found with code: " + request.getCertificationCode()));
 
+        // Crear la entidad
         PersonCertificationEntity entity = PersonCertificationEntity.builder()
                 .personId(person)
-                .certification(certification)
                 .url(request.getUrl())
+                .certification(certification)
                 .percentage(request.getPercentage())
                 .aliquot(request.getAliquot())
                 .startDate(request.getStartDate())
                 .endDate(request.getEndDate())
                 .build();
 
-        PersonCertificationEntity savedEntity = personCertificationRepository.save(entity);
-        return savedEntity.getId();
+        PersonCertificationEntity saved = personCertificationRepository.save(entity);
+        log.info("Certification created with id: {}", saved.getId());
+
+        return saved.getId();
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<PersonCertification> getValidCertifications(Long personId) {
-        return personCertificationRepository.findValidCertifications(personId, ZonedDateTime.now())
-                .stream()
+        log.info("Getting valid certifications for person: {}", personId);
+
+        ZonedDateTime now = ZonedDateTime.now();
+        List<PersonCertificationEntity> entities = personCertificationRepository
+                .findValidCertifications(personId, now);
+
+        return entities.stream()
                 .map(mapper::toDto)
                 .collect(Collectors.toList());
     }
-    
+
     @Override
-    @Transactional(readOnly = true)
     public PersonCertification getById(Long personId, Integer certificationId) {
-        return personCertificationRepository.findByIdAndPersonId_Id(certificationId, personId)
-                .map(mapper::toDto)
-                .orElseThrow(() -> new ResourceNotFoundException("Certificación no encontrada con id: " + certificationId));
+        log.info("Getting certification {} for person: {}", certificationId, personId);
+
+        PersonCertificationEntity entity = personCertificationRepository
+                .findByIdAndPersonId_Id(certificationId, personId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        String.format("Certification not found with id %d for person %d", certificationId, personId)));
+
+        return mapper.toDto(entity);
     }
 
     @Override
     @Transactional
     public Integer delete(Long personId, Integer certificationId) {
-        PersonCertificationEntity entity = personCertificationRepository.findByIdAndPersonId_Id(certificationId, personId)
-                .orElseThrow(() -> new ResourceNotFoundException("Certificación no encontrada con id: " + certificationId));
-        
+        log.info("Deleting certification {} for person: {}", certificationId, personId);
+
+        PersonCertificationEntity entity = personCertificationRepository
+                .findByIdAndPersonId_Id(certificationId, personId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        String.format("Certification not found with id %d for person %d", certificationId, personId)));
+
         entity.setDeletedAt(ZonedDateTime.now());
         personCertificationRepository.save(entity);
+
+        log.info("Certification {} deleted successfully", certificationId);
         return entity.getId();
+    }
+
+    private void validateRequest(CreatePersonCertificationRequest request) {
+        // Solo se permite un dato a la vez en percentage o aliquot
+        if (request.getPercentage() != null && request.getAliquot() != null) {
+            throw new IllegalArgumentException("Only one of 'percentage' or 'aliquot' can be specified");
+        }
+
+        // La fecha desde debe ser menor a la hasta si se especifica
+        if (request.getStartDate() != null && request.getEndDate() != null) {
+            if (request.getStartDate().isAfter(request.getEndDate())) {
+                throw new IllegalArgumentException("Start date must be before end date");
+            }
+        }
     }
 }
 ```
@@ -765,6 +1042,9 @@ public class PersonCertificationController {
 }
 ```
 
+> [!NOTE]
+> **Operaciones no implementadas:** Este controlador **no incluye métodos PATCH o PUT** para actualizar certificaciones existentes. Según los requerimientos de la Historia de Usuario, las certificaciones son inmutables una vez creadas. Si se requiere modificar una certificación, se debe eliminar la existente (soft delete) y crear una nueva. Esta decisión de diseño garantiza la trazabilidad completa del historial de certificaciones.
+
 ---
 
 ### 9. Manejo de Excepciones
@@ -781,11 +1061,11 @@ El sistema utiliza un manejador global de excepciones (`@ControllerAdvice`). Par
 
 ```json
 {
-  "timestamp": "2023-10-27T10:30:00.000Z",
-  "status": 404,
-  "error": "Not Found",
-  "message": "Certificación no encontrada con código: CERT_INEXISTENTE",
-  "path": "/v2/people/123/certifications"
+"timestamp": "2023-10-27T10:30:00.000Z",
+"status": 404,
+"error": "Not Found",
+"message": "Certificación no encontrada con código: CERT_INEXISTENTE",
+"path": "/v2/people/123/certifications"
 }
 ```
 
@@ -793,19 +1073,479 @@ El sistema utiliza un manejador global de excepciones (`@ControllerAdvice`). Par
 
 ### 10. Verificación y Pruebas
 
-Para garantizar la calidad de la implementación, se requiere la ejecución de las siguientes pruebas:
+Para garantizar la calidad de la implementación, se requiere la ejecución de las siguientes pruebas. A continuación se detallan las implementaciones de referencia.
 
-1. **Pruebas Unitarias (`@ExtendWith(MockitoExtension.class)`):**
-    - Verificar la lógica de negocio en `PersonCertificationServiceImpl`.
-    - Validar el mapeo correcto en `PersonCertificationMapper`.
+#### 10.1. Pruebas Unitarias (Service)
 
-2. **Pruebas de Integración (`@SpringBootTest`):**
-    - Verificar el flujo completo desde el Controlador hasta la Base de Datos.
-    - Validar las restricciones de base de datos (Foreign Keys, Unique Constraints).
+**Ubicación:** `microservice/src/test/java/ar/com/bds/people/center/service/PersonCertificationServiceTest.java`
 
-3. **Validación de API:**
-    - Verificar que los endpoints responden correctamente a las rutas definidas en `PathV2`.
-    - Confirmar que la documentación Swagger/OpenAPI se genera correctamente.
+```java
+package ar.com.bds.people.center.service;
+
+import ar.com.bds.exception.ResourceNotFoundException;
+import ar.com.bds.lib.peoplecenter.model.PersonCertification;
+import ar.com.bds.lib.peoplecenter.model.requests.CreatePersonCertificationRequest;
+import ar.com.bds.people.center.entity.CertificationEntity;
+import ar.com.bds.people.center.entity.PersonCertificationEntity;
+import ar.com.bds.people.center.entity.PersonEntity;
+import ar.com.bds.people.center.mapper.PersonCertificationMapper;
+import ar.com.bds.people.center.repository.CertificationRepository;
+import ar.com.bds.people.center.repository.PeopleCenterRepository;
+import ar.com.bds.people.center.repository.PersonCertificationRepository;
+import ar.com.bds.people.center.service.impl.PersonCertificationServiceImpl;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.time.ZonedDateTime;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+@DisplayName("PersonCertificationService - Unit Tests")
+class PersonCertificationServiceTest {
+
+    @Mock
+    private PersonCertificationRepository personCertificationRepository;
+    @Mock
+    private CertificationRepository certificationRepository;
+    @Mock
+    private PeopleCenterRepository peopleCenterRepository;
+    @Mock
+    private PersonCertificationMapper mapper;
+
+    @InjectMocks
+    private PersonCertificationServiceImpl service;
+
+    private PersonEntity mockPerson;
+    private CertificationEntity mockCertification;
+    private PersonCertificationEntity mockPersonCertification;
+    private CreatePersonCertificationRequest mockRequest;
+
+    @BeforeEach
+    void setUp() {
+        // Setup common test data
+        mockPerson = new PersonEntity();
+        mockPerson.setId(1L);
+
+        mockCertification = new CertificationEntity();
+        mockCertification.setId(100);
+        mockCertification.setCode("CERT_IVA");
+        mockCertification.setName("Certificación IVA");
+
+        mockPersonCertification = new PersonCertificationEntity();
+        mockPersonCertification.setId(500);
+        mockPersonCertification.setPersonId(mockPerson);
+        mockPersonCertification.setCertification(mockCertification);
+        mockPersonCertification.setUrl("http://example.com/cert.pdf");
+        mockPersonCertification.setAliquot(new BigDecimal("0.21"));
+
+        mockRequest = CreatePersonCertificationRequest.builder()
+                .certificationCode("CERT_IVA")
+                .url("http://example.com/doc.pdf")
+                .aliquot(new BigDecimal("0.21"))
+                .build();
+    }
+
+    @Test
+    @DisplayName("create() - Debe retornar ID cuando los datos son válidos")
+    void create_ShouldReturnId_WhenDataIsValid() {
+        // Arrange
+        when(peopleCenterRepository.findById(1L)).thenReturn(Optional.of(mockPerson));
+        when(certificationRepository.findByCode("CERT_IVA")).thenReturn(Optional.of(mockCertification));
+        when(personCertificationRepository.save(any(PersonCertificationEntity.class)))
+                .thenReturn(mockPersonCertification);
+
+        // Act
+        Integer result = service.create(1L, mockRequest);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(500, result);
+        verify(personCertificationRepository).save(any(PersonCertificationEntity.class));
+        verify(peopleCenterRepository).findById(1L);
+        verify(certificationRepository).findByCode("CERT_IVA");
+    }
+
+    @Test
+    @DisplayName("create() - Debe lanzar ResourceNotFoundException cuando la persona no existe")
+    void create_ShouldThrowException_WhenPersonNotFound() {
+        // Arrange
+        when(peopleCenterRepository.findById(999L)).thenReturn(Optional.empty());
+
+        // Act & Assert
+        ResourceNotFoundException exception = assertThrows(
+                ResourceNotFoundException.class,
+                () -> service.create(999L, mockRequest));
+
+        assertTrue(exception.getMessage().contains("Person not found"));
+        verify(personCertificationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("create() - Debe lanzar ResourceNotFoundException cuando la certificación no existe")
+    void create_ShouldThrowException_WhenCertificationNotFound() {
+        // Arrange
+        when(peopleCenterRepository.findById(1L)).thenReturn(Optional.of(mockPerson));
+        when(certificationRepository.findByCode("INVALID_CODE")).thenReturn(Optional.empty());
+
+        CreatePersonCertificationRequest invalidRequest = CreatePersonCertificationRequest.builder()
+                .certificationCode("INVALID_CODE")
+                .url("http://example.com/doc.pdf")
+                .build();
+
+        // Act & Assert
+        ResourceNotFoundException exception = assertThrows(
+                ResourceNotFoundException.class,
+                () -> service.create(1L, invalidRequest));
+
+        assertTrue(exception.getMessage().contains("Certification not found"));
+        verify(personCertificationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("getValidCertifications() - Debe retornar lista de certificaciones válidas")
+    void getValidCertifications_ShouldReturnList_WhenCertificationsExist() {
+        // Arrange
+        List<PersonCertificationEntity> entities = Arrays.asList(
+                mockPersonCertification,
+                mockPersonCertification);
+        PersonCertification dto = new PersonCertification();
+        dto.setId(500);
+
+        when(personCertificationRepository.findValidCertifications(eq(1L), any(ZonedDateTime.class)))
+                .thenReturn(entities);
+        when(mapper.toDto(any(PersonCertificationEntity.class))).thenReturn(dto);
+
+        // Act
+        List<PersonCertification> result = service.getValidCertifications(1L);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(2, result.size());
+        verify(personCertificationRepository).findValidCertifications(eq(1L), any(ZonedDateTime.class));
+        verify(mapper, times(2)).toDto(any(PersonCertificationEntity.class));
+    }
+
+    @Test
+    @DisplayName("getById() - Debe retornar certificación cuando existe")
+    void getById_ShouldReturnCertification_WhenExists() {
+        // Arrange
+        PersonCertification dto = new PersonCertification();
+        dto.setId(500);
+
+        when(personCertificationRepository.findByIdAndPersonId_Id(500, 1L))
+                .thenReturn(Optional.of(mockPersonCertification));
+        when(mapper.toDto(mockPersonCertification)).thenReturn(dto);
+
+        // Act
+        PersonCertification result = service.getById(1L, 500);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(500, result.getId());
+        verify(personCertificationRepository).findByIdAndPersonId_Id(500, 1L);
+    }
+
+    @Test
+    @DisplayName("getById() - Debe lanzar ResourceNotFoundException cuando no existe")
+    void getById_ShouldThrowException_WhenNotFound() {
+        // Arrange
+        when(personCertificationRepository.findByIdAndPersonId_Id(999, 1L))
+                .thenReturn(Optional.empty());
+
+        // Act & Assert
+        ResourceNotFoundException exception = assertThrows(
+                ResourceNotFoundException.class,
+                () -> service.getById(1L, 999));
+
+        assertTrue(exception.getMessage().contains("Certification not found"));
+    }
+
+    @Test
+    @DisplayName("delete() - Debe realizar soft delete correctamente")
+    void delete_ShouldPerformSoftDelete_WhenCertificationExists() {
+        // Arrange
+        when(personCertificationRepository.findByIdAndPersonId_Id(500, 1L))
+                .thenReturn(Optional.of(mockPersonCertification));
+        when(personCertificationRepository.save(any(PersonCertificationEntity.class)))
+                .thenReturn(mockPersonCertification);
+
+        // Act
+        Integer result = service.delete(1L, 500);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(500, result);
+        verify(personCertificationRepository).save(argThat(entity -> entity.getDeletedAt() != null));
+    }
+
+    @Test
+    @DisplayName("delete() - Debe lanzar ResourceNotFoundException cuando no existe")
+    void delete_ShouldThrowException_WhenNotFound() {
+        // Arrange
+        when(personCertificationRepository.findByIdAndPersonId_Id(999, 1L))
+                .thenReturn(Optional.empty());
+
+        // Act & Assert
+        ResourceNotFoundException exception = assertThrows(
+                ResourceNotFoundException.class,
+                () -> service.delete(1L, 999));
+
+        assertTrue(exception.getMessage().contains("Certification not found"));
+        verify(personCertificationRepository, never()).save(any());
+    }
+}
+```
+
+#### 10.2. Pruebas de Integración (Controller)
+
+**Ubicación:** `microservice/src/test/java/ar/com/bds/people/center/controller/PersonCertificationControllerIT.java`
+
+```java
+package ar.com.bds.people.center.controller;
+
+import ar.com.bds.lib.peoplecenter.api.PathV2;
+import ar.com.bds.lib.peoplecenter.model.requests.CreatePersonCertificationRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.jdbc.Sql;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+
+import static org.hamcrest.Matchers.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@Transactional
+@DisplayName("PersonCertificationController - Integration Tests")
+class PersonCertificationControllerIT {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Test
+    @DisplayName("POST /certifications - Debe crear certificación con datos válidos")
+    @Sql("/test-data/person-certification-setup.sql")
+    void create_ShouldReturnCreated_WhenRequestIsValid() throws Exception {
+        // Arrange
+        Long personId = 1L;
+        CreatePersonCertificationRequest request = CreatePersonCertificationRequest.builder()
+                .certificationCode("CERT_IVA")
+                .url("http://example.com/test.pdf")
+                .aliquot(new BigDecimal("0.21"))
+                .build();
+
+        // Act & Assert
+        mockMvc.perform(post(PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$", notNullValue()))
+                .andExpect(jsonPath("$", greaterThan(0)));
+    }
+
+    @Test
+    @DisplayName("POST /certifications - Debe retornar 400 cuando faltan campos requeridos")
+    void create_ShouldReturnBadRequest_WhenRequiredFieldsMissing() throws Exception {
+        // Arrange
+        Long personId = 1L;
+        CreatePersonCertificationRequest invalidRequest = CreatePersonCertificationRequest.builder()
+                .certificationCode("CERT_IVA")
+                // URL faltante (campo requerido)
+                .build();
+
+        // Act & Assert
+        mockMvc.perform(post(PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidRequest)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("POST /certifications - Debe retornar 404 cuando la persona no existe")
+    void create_ShouldReturnNotFound_WhenPersonDoesNotExist() throws Exception {
+        // Arrange
+        Long nonExistentPersonId = 99999L;
+        CreatePersonCertificationRequest request = CreatePersonCertificationRequest.builder()
+                .certificationCode("CERT_IVA")
+                .url("http://example.com/test.pdf")
+                .build();
+
+        // Act & Assert
+        mockMvc.perform(post(PathV2.CERTIFICATIONS_PATH.replace("{id}", nonExistentPersonId.toString()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message", containsString("Persona no encontrada")));
+    }
+
+    @Test
+    @DisplayName("GET /certifications - Debe retornar lista de certificaciones válidas")
+    @Sql("/test-data/person-certification-setup.sql")
+    void getValidCertifications_ShouldReturnList_WhenCertificationsExist() throws Exception {
+        // Arrange
+        Long personId = 1L;
+
+        // Act & Assert
+        mockMvc.perform(get(PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString())))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$", isA(List.class)))
+                .andExpect(jsonPath("$", hasSize(greaterThanOrEqualTo(0))));
+    }
+
+    @Test
+    @DisplayName("GET /certifications/{certificationId} - Debe retornar certificación específica")
+    @Sql("/test-data/person-certification-setup.sql")
+    void getById_ShouldReturnCertification_WhenExists() throws Exception {
+        // Arrange
+        Long personId = 1L;
+        Integer certificationId = 1;
+
+        // Act & Assert
+        mockMvc.perform(get(PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString()) + "/" + certificationId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id", is(certificationId)))
+                .andExpect(jsonPath("$.url", notNullValue()))
+                .andExpect(jsonPath("$.certification", notNullValue()))
+                .andExpect(jsonPath("$.certification.code", notNullValue()));
+    }
+
+    @Test
+    @DisplayName("GET /certifications/{certificationId} - Debe retornar 404 cuando no existe")
+    void getById_ShouldReturnNotFound_WhenDoesNotExist() throws Exception {
+        // Arrange
+        Long personId = 1L;
+        Integer nonExistentCertificationId = 99999;
+
+        // Act & Assert
+        mockMvc.perform(get(PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString()) + "/" + nonExistentCertificationId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message", containsString("Certificación no encontrada")));
+    }
+
+    @Test
+    @DisplayName("DELETE /certifications/{certificationId} - Debe eliminar certificación correctamente")
+    @Sql("/test-data/person-certification-setup.sql")
+    void delete_ShouldReturnNoContent_WhenCertificationExists() throws Exception {
+        // Arrange
+        Long personId = 1L;
+        Integer certificationId = 1;
+
+        // Act & Assert
+        mockMvc.perform(delete(PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString()) + "/" + certificationId))
+                .andExpect(status().isNoContent());
+
+        // Verificar que la certificación fue marcada como eliminada (soft delete)
+        mockMvc.perform(get(PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString()) + "/" + certificationId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("DELETE /certifications/{certificationId} - Debe retornar 404 cuando no existe")
+    void delete_ShouldReturnNotFound_WhenDoesNotExist() throws Exception {
+        // Arrange
+        Long personId = 1L;
+        Integer nonExistentCertificationId = 99999;
+
+        // Act & Assert
+        mockMvc.perform(delete(PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString()) + "/" + nonExistentCertificationId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message", containsString("Certificación no encontrada")));
+    }
+
+    @Test
+    @DisplayName("POST /certifications - Debe validar rangos de aliquot y percentage")
+    void create_ShouldValidateRanges_WhenValuesOutOfBounds() throws Exception {
+        // Arrange
+        Long personId = 1L;
+        CreatePersonCertificationRequest invalidRequest = CreatePersonCertificationRequest.builder()
+                .certificationCode("CERT_IVA")
+                .url("http://example.com/test.pdf")
+                .aliquot(new BigDecimal("1.5")) // Valor fuera de rango (> 1.0)
+                .build();
+
+        // Act & Assert
+        mockMvc.perform(post(PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors", hasItem(containsString("Aliquot must be <= 1"))));
+    }
+}
+```
+
+#### 10.3. Datos de Prueba (SQL)
+
+**Ubicación:** `microservice/src/test/resources/test-data/person-certification-setup.sql`
+
+```sql
+-- Insertar persona de prueba
+INSERT INTO people (id, type, created_at, updated_at)
+VALUES (1, 'NATURAL', NOW(), NOW());
+
+-- Insertar certificaciones de prueba
+INSERT INTO certification (id, code, name, created_at)
+VALUES (1, 'CERT_IVA', 'Certificación IVA', NOW()),
+       (2, 'CERT_GANANCIAS', 'Certificación Ganancias', NOW());
+
+-- Insertar certificación de persona de prueba
+INSERT INTO person_certification (id, person_id, certification_id, url, aliquot, created_at)
+VALUES (1, 1, 1, 'http://example.com/cert1.pdf', 0.21, NOW());
+```
+
+#### 10.4. Configuración de Pruebas
+
+**Ubicación:** `microservice/src/test/resources/application-test.yml`
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: false
+
+logging:
+  level:
+    ar.com.bds.people.center: DEBUG
+    org.springframework.test: DEBUG
+```
 
 ---
 
