@@ -41,6 +41,7 @@ Este documento define las especificaciones técnicas y el procedimiento detallad
    - [9. Manejo de Excepciones](#9-manejo-de-excepciones)
    - [10. Verificación y Pruebas](#10-verificación-y-pruebas)
      - [10.1. Pruebas Unitarias (Service)](#101-pruebas-unitarias-service)
+     - [10.2. Pruebas de Integración (Controller)](#102-pruebas-de-integración-controller)
 4. [Conclusión](#conclusión)
 
 ---
@@ -1307,6 +1308,287 @@ class PersonCertificationServiceTest {
     }
 }
 ```
+
+#### 10.2. Pruebas de Integración (Controller)
+
+**Ubicación:** `microservice/src/test/java/ar/com/bds/people/center/controller/CertificationsControllerTest.java`
+
+```java
+package ar.com.bds.people.center.controller;
+
+import ar.com.bds.lib.peoplecenter.model.Certification;
+import ar.com.bds.lib.peoplecenter.model.PersonCertification;
+import ar.com.bds.lib.peoplecenter.model.requests.CreatePersonCertificationRequest;
+import ar.com.bds.people.center.service.PersonCertificationService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.math.BigDecimal;
+import java.time.ZonedDateTime;
+import java.util.Arrays;
+import java.util.List;
+
+import static org.hamcrest.Matchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@WebMvcTest(controllers = CertificationsController.class)
+@ActiveProfiles("test")
+@DisplayName("CertificationsController - Integration Tests")
+class CertificationsControllerTest {
+
+    private static final String BASE_URL = "/v2/people/{personId}/certifications";
+    private static final Long PERSON_ID = 1L;
+    private static final Integer CERTIFICATION_ID = 100;
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @MockBean
+    private PersonCertificationService certificationService;
+
+    @Test
+    @DisplayName("POST /certifications - Should return 201 and certification ID when request is valid")
+    void createCertification_ShouldReturn201_WhenRequestIsValid() throws Exception {
+        // Arrange
+        CreatePersonCertificationRequest request = CreatePersonCertificationRequest.builder()
+                .certificationCode("CERT_IVA")
+                .url("http://example.com/cert.pdf")
+                .aliquot(new BigDecimal("0.21"))
+                .build();
+
+        when(certificationService.create(anyLong(), any(CreatePersonCertificationRequest.class)))
+                .thenReturn(CERTIFICATION_ID);
+
+        // Act & Assert
+        mockMvc.perform(post(BASE_URL, PERSON_ID)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().string(CERTIFICATION_ID.toString()));
+
+        verify(certificationService, times(1)).create(eq(PERSON_ID), any(CreatePersonCertificationRequest.class));
+    }
+
+    @Test
+    @DisplayName("POST /certifications - Should return 400 when request is invalid")
+    void createCertification_ShouldReturn400_WhenRequestIsInvalid() throws Exception {
+        // Arrange - Request sin URL (campo requerido)
+        CreatePersonCertificationRequest invalidRequest = CreatePersonCertificationRequest.builder()
+                .certificationCode("CERT_IVA")
+                // url faltante
+                .build();
+
+        // Act & Assert
+        mockMvc.perform(post(BASE_URL, PERSON_ID)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(invalidRequest)))
+                .andExpect(status().isBadRequest());
+
+        verify(certificationService, never()).create(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("GET /certifications - Should return 200 and list of certifications")
+    void getValidCertifications_ShouldReturn200_WhenCertificationsExist() throws Exception {
+        // Arrange
+        List<PersonCertification> certifications = Arrays.asList(
+                createPersonCertification(100, "CERT_IVA"),
+                createPersonCertification(101, "CERT_GANANCIAS"));
+
+        when(certificationService.getValidCertifications(anyLong()))
+                .thenReturn(certifications);
+
+        // Act & Assert
+        mockMvc.perform(get(BASE_URL, PERSON_ID)
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].id", is(100)))
+                .andExpect(jsonPath("$[0].certification.code", is("CERT_IVA")))
+                .andExpect(jsonPath("$[1].id", is(101)))
+                .andExpect(jsonPath("$[1].certification.code", is("CERT_GANANCIAS")));
+
+        verify(certificationService, times(1)).getValidCertifications(PERSON_ID);
+    }
+
+    @Test
+    @DisplayName("GET /certifications - Should return 200 and empty list when no certifications exist")
+    void getValidCertifications_ShouldReturn200_WhenNoCertificationsExist() throws Exception {
+        // Arrange
+        when(certificationService.getValidCertifications(anyLong()))
+                .thenReturn(List.of());
+
+        // Act & Assert
+        mockMvc.perform(get(BASE_URL, PERSON_ID)
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$", hasSize(0)));
+
+        verify(certificationService, times(1)).getValidCertifications(PERSON_ID);
+    }
+
+    @Test
+    @DisplayName("GET /certifications/{idEntity} - Should return 200 and certification when exists")
+    void getCertificationById_ShouldReturn200_WhenCertificationExists() throws Exception {
+        // Arrange
+        PersonCertification certification = createPersonCertification(CERTIFICATION_ID, "CERT_IVA");
+
+        when(certificationService.getById(anyLong(), anyInt()))
+                .thenReturn(certification);
+
+        // Act & Assert
+        mockMvc.perform(get(BASE_URL + "/{idEntity}", PERSON_ID, CERTIFICATION_ID)
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id", is(CERTIFICATION_ID)))
+                .andExpect(jsonPath("$.url", is("http://example.com/cert.pdf")))
+                .andExpect(jsonPath("$.aliquot", is(0.21)))
+                .andExpect(jsonPath("$.certification.code", is("CERT_IVA")))
+                .andExpect(jsonPath("$.certification.name", is("Certificación IVA")));
+
+        verify(certificationService, times(1)).getById(PERSON_ID, CERTIFICATION_ID);
+    }
+
+    @Test
+    @DisplayName("DELETE /certifications/{idEntity} - Should return 200 when certification is deleted")
+    void deleteCertification_ShouldReturn200_WhenCertificationExists() throws Exception {
+        // Arrange
+        when(certificationService.delete(anyLong(), anyInt()))
+                .thenReturn(CERTIFICATION_ID);
+
+        // Act & Assert
+        mockMvc.perform(delete(BASE_URL + "/{idEntity}", PERSON_ID, CERTIFICATION_ID)
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().string(CERTIFICATION_ID.toString()));
+
+        verify(certificationService, times(1)).delete(PERSON_ID, CERTIFICATION_ID);
+    }
+
+    @Test
+    @DisplayName("POST /certifications - Should validate aliquot range")
+    void createCertification_ShouldReturn400_WhenAliquotOutOfRange() throws Exception {
+        // Arrange - Aliquot mayor a 1.0
+        CreatePersonCertificationRequest invalidRequest = CreatePersonCertificationRequest.builder()
+                .certificationCode("CERT_IVA")
+                .url("http://example.com/cert.pdf")
+                .aliquot(new BigDecimal("1.5"))
+                .build();
+
+        // Act & Assert
+        mockMvc.perform(post(BASE_URL, PERSON_ID)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(invalidRequest)))
+                .andExpect(status().isBadRequest());
+
+        verify(certificationService, never()).create(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("POST /certifications - Should validate percentage range")
+    void createCertification_ShouldReturn400_WhenPercentageOutOfRange() throws Exception {
+        // Arrange - Percentage mayor a 1.0
+        CreatePersonCertificationRequest invalidRequest = CreatePersonCertificationRequest.builder()
+                .certificationCode("CERT_IVA")
+                .url("http://example.com/cert.pdf")
+                .percentage(new BigDecimal("1.5"))
+                .build();
+
+        // Act & Assert
+        mockMvc.perform(post(BASE_URL, PERSON_ID)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(invalidRequest)))
+                .andExpect(status().isBadRequest());
+
+        verify(certificationService, never()).create(anyLong(), any());
+    }
+
+    // Helper methods
+
+    private PersonCertification createPersonCertification(Integer id, String certCode) {
+        Certification cert = Certification.builder()
+                .code(certCode)
+                .name("Certificación " + certCode.replace("CERT_", ""))
+                .build();
+
+        return PersonCertification.builder()
+                .id(id)
+                .url("http://example.com/cert.pdf")
+                .aliquot(new BigDecimal("0.21"))
+                .certification(cert)
+                .createdAt(ZonedDateTime.now())
+                .build();
+    }
+}
+
+```
+
+#### 10.3. Datos de Prueba (SQL)
+
+**Ubicación:** `microservice/src/test/resources/test-data/person-certification-setup.sql`
+
+```sql
+-- Insertar persona de prueba
+INSERT INTO people (id, type, created_at, updated_at)
+VALUES (1, 'NATURAL', NOW(), NOW());
+
+-- Insertar certificaciones de prueba
+INSERT INTO certification (id, code, name, created_at)
+VALUES (1, 'CERT_IVA', 'Certificación IVA', NOW()),
+       (2, 'CERT_GANANCIAS', 'Certificación Ganancias', NOW());
+
+-- Insertar certificación de persona de prueba
+INSERT INTO person_certification (id, person_id, certification_id, url, aliquot, created_at)
+VALUES (1, 1, 1, 'http://example.com/cert1.pdf', 0.21, NOW());
+```
+
+#### 10.4. Configuración de Pruebas
+
+**Ubicación:** `microservice/src/test/resources/application-test.yml`
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: false
+
+logging:
+  level:
+    ar.com.bds.people.center: DEBUG
+    org.springframework.test: DEBUG
+```
+
+---
 
 ## Conclusión
 
