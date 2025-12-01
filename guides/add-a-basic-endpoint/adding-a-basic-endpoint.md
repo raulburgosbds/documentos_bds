@@ -1,16 +1,16 @@
-# Guía para Agregar un Nuevo Endpoint en People Center
+# Especificación de Implementación: Endpoint de Certificaciones
 
-Esta guía detalla los pasos necesarios para implementar un nuevo endpoint en el proyecto `people-center-develop`, usando como ejemplo la historia de usuario de **Certificaciones**.
+Este documento define las especificaciones técnicas y el procedimiento detallado para la implementación del recurso de **Certificaciones** en el microservicio `people-center`.
 
 ## Estructura del Proyecto
 
-El proyecto sigue una arquitectura en capas típica de Spring Boot:
+El proyecto adhiere a la arquitectura en capas estándar de Spring Boot:
 
 ```
 microservice/src/main/java/ar/com/bds/people/center/
 ├── controller/     # Controladores REST
 ├── service/        # Lógica de negocio
-│   └── impl/      # Implementaciones de servicios
+│   └── impl/       # Implementaciones de servicios
 ├── repository/     # Acceso a datos (JPA)
 ├── entity/         # Entidades JPA
 ├── mapper/         # Mappers (MapStruct)
@@ -23,68 +23,71 @@ microservice/src/main/java/ar/com/bds/people/center/
 
 ### Diagrama de Relaciones
 
-El sistema de certificaciones se integra con el modelo existente de People Center:
+El módulo de certificaciones se integra con el modelo de datos existente de People Center de la siguiente manera:
 
-```
-┌─────────────────┐
-│     people      │  (Tabla principal)
-│                 │
-│  id (PK)        │
-│  type           │
-│  created_at     │
-│  updated_at     │
-└────────┬────────┘
-         │ 1
-         │
-         │ N
-         ├──────────────────────────────────┐
-         │                                  │
-         ↓                                  ↓
-┌─────────────────────┐          ┌─────────────────────┐
-│  certification      │          │ person_certification│
-│                     │          │                     │
-│  id (PK)            │          │  id (PK)            │
-│  code               │◄─────────│  person_id (FK)     │
-│  name               │     N    │  certification_id(FK)│
-│  created_at         │          │  url                │
-│  deleted_at         │          │  percentage         │
-└─────────────────────┘          │  aliquot            │
-                                 │  start_date         │
-                                 │  end_date           │
-                                 │  created_at         │
-                                 │  deleted_at         │
-                                 └─────────────────────┘
+```mermaid
+erDiagram
+    people ||--o{ person_certification : "tiene asignadas"
+    certification ||--o{ person_certification : "clasifica"
+
+    people {
+        bigint id PK
+        string type
+        datetime created_at
+        datetime updated_at
+    }
+
+    certification {
+        int id PK
+        string code UK
+        string name
+        datetime created_at
+        datetime deleted_at
+    }
+
+    person_certification {
+        int id PK
+        bigint person_id FK
+        int certification_id FK
+        string url
+        decimal percentage
+        decimal aliquot
+        datetime start_date
+        datetime end_date
+        datetime created_at
+        datetime deleted_at
+    }
 ```
 
-### Diagrama Entidad-Relación Completo
+### Diagrama Entidad-Relación
 
 ![DER People Center](./der_people_center.png)
 
-En el diagrama completo se puede ver cómo `person_certification` se relaciona con:
+La entidad `person_certification` actúa como tabla de vinculación con atributos adicionales entre:
 
-- **people** (tabla principal) mediante `person_id`
-- **certification** (catálogo) mediante `certification_id`
+- **people**: Entidad principal (mediante `person_id`).
+- **certification**: Catálogo maestro (mediante `certification_id`).
 
-### Relaciones
+### Cardinalidad y Relaciones
 
-- **people (1) → (N) person_certification**: Una persona puede tener múltiples certificaciones
-- **certification (1) → (N) person_certification**: Un tipo de certificación puede estar asociado a múltiples personas
-- **person_certification**: Tabla de relación que almacena las certificaciones específicas de cada persona
+- **people (1) → (N) person_certification**: Una persona puede poseer múltiples certificaciones.
+- **certification (1) → (N) person_certification**: Un tipo de certificación puede estar asociado a múltiples personas.
+- **person_certification**: Representa la instancia concreta de una certificación para una persona específica.
 
 > [!NOTE]
-> La tabla `certification` es un catálogo maestro que define los tipos de certificaciones disponibles (ej: CERT_IVA, CERT_GANANCIAS), mientras que `person_certification` almacena las certificaciones concretas de cada persona con sus datos específicos (URL del documento, fechas de vigencia, etc.).
+> La tabla `certification` constituye un catálogo maestro que define los tipos de certificaciones disponibles (ej: CERT_IVA, CERT_GANANCIAS), mientras que `person_certification` almacena los datos específicos de la asignación (URL del documento, vigencia, alícuotas, etc.).
 
 ---
 
-## Pasos para Implementar un Nuevo Endpoint
+## Procedimiento de Implementación
 
-### 1. **Crear la Migración de Base de Datos**
+### 1. Migración de Esquema de Base de Datos
 
 **Ubicación:** `microservice/src/main/resources/db/migration/`
 
-**Nombre del archivo:** `V25__create_certification_tables.sql` (incrementar el número de versión)
+**Archivo:** `V25__create_certification_tables.sql` (el número de versión debe ser incremental).
 
-**Contenido:**
+**Definición SQL:**
 
 ```sql
 -- Tabla: certification
@@ -119,18 +122,47 @@ CREATE TABLE IF NOT EXISTS `person_certification`
     CONSTRAINT `certification_id_fk` FOREIGN KEY (`certification_id`) REFERENCES `certification` (`id`)
 );
 
--- Datos iniciales (ajustar según definición final)
+-- Datos semilla iniciales (sujetos a definición final)
 INSERT INTO `certification` (`code`, `name`, `created_at`)
 VALUES ('CERT_IVA', 'Certificación IVA', NOW()),
        ('CERT_GANANCIAS', 'Certificación Ganancias', NOW());
 ```
 
 > [!NOTE]
-> Los códigos y nombres de las certificaciones deben ser definidos según los requerimientos del equipo de Impuestos.
+> Los códigos y nombres de las certificaciones deben alinearse con los requerimientos definidos por el área de Impuestos.
 
 ---
 
-### 2. **Crear las Entidades JPA**
+### 2. Definición de Entidades JPA
+
+#### Diagrama de Clases
+
+```mermaid
+classDiagram
+    direction LR
+    class PersonEntity {
+        +Long id
+        +Set~PersonCertificationEntity~ certifications
+    }
+    class CertificationEntity {
+        +Integer id
+        +String code
+        +String name
+    }
+    class PersonCertificationEntity {
+        +Integer id
+        +PersonEntity personId
+        +CertificationEntity certification
+        +String url
+        +BigDecimal percentage
+        +BigDecimal aliquot
+        +ZonedDateTime startDate
+        +ZonedDateTime endDate
+    }
+
+    PersonEntity "1" *-- "*" PersonCertificationEntity : OneToMany
+    PersonCertificationEntity "*" --> "1" CertificationEntity : ManyToOne
+```
 
 #### 2.1. Entidad `CertificationEntity`
 
@@ -241,11 +273,11 @@ public class PersonCertificationEntity {
 }
 ```
 
-#### 2.3. Actualizar `PersonEntity` para incluir la relación
+#### 2.3. Actualización de `PersonEntity`
 
 **Ubicación:** `microservice/src/main/java/ar/com/bds/people/center/entity/PersonEntity.java`
 
-Debes agregar la relación `@OneToMany` en `PersonEntity` para que tenga acceso a las certificaciones:
+Se requiere agregar la relación `@OneToMany` en `PersonEntity` para habilitar el acceso a las certificaciones:
 
 ```java
 @Entity
@@ -263,7 +295,7 @@ public class PersonEntity implements HasCreatedAndUpdated {
     @JoinColumn(name = PERSON_ID_COLUMN_NAME)
     private Set<TaxpayersProfileEntity> taxpayersProfiles;
     
-    // ✅ AGREGAR esta nueva relación
+    // Relación con Certificaciones
     @OneToMany(cascade = CascadeType.ALL)
     @JoinColumn(name = PERSON_ID_COLUMN_NAME)
     private Set<PersonCertificationEntity> certifications;
@@ -273,11 +305,11 @@ public class PersonEntity implements HasCreatedAndUpdated {
 ```
 
 > [!IMPORTANT]
-> La relación en `PersonEntity` es **opcional** si solo vas a acceder a las certificaciones desde `PersonCertificationEntity`. Sin embargo, es recomendable agregarla para mantener consistencia con el resto del modelo y permitir navegación bidireccional.
+> La inclusión de esta relación en `PersonEntity` es recomendable para mantener la consistencia del modelo de dominio y permitir la navegación bidireccional, aunque el acceso principal se realice a través de los repositorios específicos.
 
 ---
 
-### 3. **Crear los Repositorios**
+### 3. Definición de Repositorios
 
 #### 3.1. `CertificationRepository`
 
@@ -334,15 +366,12 @@ public interface PersonCertificationRepository extends JpaRepository<PersonCerti
 
 ---
 
-### 4. **Crear los DTOs (Modelos)**
+### 4. Definición de Modelos de Transferencia de Datos (DTOs)
 
 > [!IMPORTANT]
-> Los DTOs deben crearse en el módulo `library/model` para ser compartidos con los clientes.
+> Los DTOs deben definirse en el módulo `library/model` para asegurar su disponibilidad para los clientes del servicio.
 
 **Ubicación:** `library/model/src/main/java/ar/com/bds/lib/peoplecenter/model/`
-
-> [!NOTE]
-> Los DTOs de respuesta van en la carpeta `model/`, mientras que los requests van en `model/requests/`.
 
 #### 4.1. `Certification.java`
 
@@ -446,15 +475,15 @@ public class CreatePersonCertificationRequest {
 
 ---
 
-### 5. **Actualizar Definiciones de API en Library**
+### 5. Actualización de la Librería Compartida
 
-Para que otros microservicios puedan usar constantes de paths del nuevo endpoint, debes actualizar `PathV2.java` en la `library`.
+Para facilitar el consumo del nuevo endpoint por otros microservicios, se debe actualizar la clase de constantes `PathV2.java` en la `library`.
 
-#### 5.1. Actualizar `PathV2.java`
+#### 5.1. Definición de Constantes de Ruta
 
 **Ubicación:** `library/model/src/main/java/ar/com/bds/lib/peoplecenter/api/PathV2.java`
 
-Agrega la constante `CERTIFICATIONS_PATH` siguiendo el orden alfabético de las demás constantes:
+Se debe agregar la constante `CERTIFICATIONS_PATH` respetando el orden alfabético:
 
 ```java
 package ar.com.bds.lib.peoplecenter.api;
@@ -470,253 +499,66 @@ public final class PathV2 {
     public static final String ACCEPTED_TERMS_PATH = BASE_PATH + "/{id}/accepted-terms";
     public static final String ADDRESS_PATH = BASE_PATH + "/{id}/addresses";
     
-    // ✅ AGREGAR esta nueva constante
+    // Constante para el recurso de certificaciones
     public static final String CERTIFICATIONS_PATH = BASE_PATH + "/{id}/certifications";
     
     public static final String CHANNELS_PATH = BASE_PATH + "/{id}/channels";
     public static final String CONTACTS_PATH = BASE_PATH + "/{id}/contacts";
-    public static final String CORE_DATA_PATH = BASE_PATH + "/{id}/core-data";
-    public static final String DOCUMENTS_PATH = BASE_PATH + "/{id}/documents";
-    public static final String ECONOMIC_ACTIVITY_PATH = BASE_PATH + "/{id}/economic-activity";
-    public static final String INCOME_INFORMATION_PATH = BASE_PATH + "/{id}/income-information";
-    public static final String LEGAL_INFORMATION_PATH = BASE_PATH + "/{id}/legal-information";
-    public static final String PERSONAL_INFO_PATH = BASE_PATH + "/{id}/personal-info";
-    public static final String PERSON_PATH = BASE_PATH;
-    public static final String RELATIONSHIP_PATH = BASE_PATH + "/{id}/relationships";
-    public static final String RISK_EVALUATION_PATH = BASE_PATH + "/{id}/risk-evaluation";
+    // ... resto de constantes ...
 }
 ```
 
-#### 5.2. Ventajas de Usar Constantes de Paths
+#### 5.2. Justificación Arquitectónica
 
-**1. Consistencia:**
+El uso de constantes para las rutas proporciona los siguientes beneficios:
 
-```java
-// ✅ BIEN - Usa constante
-String url = baseUrl + PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString());
+1. **Consistencia:** Garantiza que todos los clientes utilicen exactamente la misma ruta definida.
+2. **Mantenibilidad:** Centraliza la definición de la ruta, facilitando futuras modificaciones.
+3. **Seguridad de Tipos:** Reduce la probabilidad de errores tipográficos en las cadenas de URL.
 
-// ❌ MAL - Hardcodea el path
-String url = baseUrl + "/v2/people/" + personId + "/certifications";
-```
-
-**2. Mantenibilidad:**
-Si cambias el path en el futuro, solo lo cambias en un lugar y todos los clientes se actualizan automáticamente.
-
-**3. Type-safety:**
-Evitas errores de tipeo en URLs.
-
-#### 5.3. Ejemplo de Uso en Otros Microservicios
+#### 5.3. Ejemplo de Implementación en Clientes
 
 ```java
-// En otro microservicio: loan-service
-import ar.com.bds.lib.peoplecenter.api.PathV2;
-import ar.com.bds.lib.peoplecenter.model.PersonCertification;
-import org.springframework.core.ParameterizedTypeReference;
-
-@Service
-public class LoanService {
+// Ejemplo en microservicio consumidor
+public List<PersonCertification> getPersonCertifications(Long personId) {
+    // Uso de la constante centralizada
+    String url = baseUrl + PathV2.CERTIFICATIONS_PATH
+        .replace("{id}", personId.toString());
     
-    @Autowired
-    private RestTemplate restTemplate;
-    
-    @Value("${people-center.base-url}")
-    private String baseUrl;
-    
-    public List<PersonCertification> getPersonCertifications(Long personId) {
-        // ✅ Usa la constante de PathV2
-        String url = baseUrl + PathV2.CERTIFICATIONS_PATH
-            .replace("{id}", personId.toString());
-        
-        return restTemplate.exchange(
-            url,
-            HttpMethod.GET,
-            null,
-            new ParameterizedTypeReference<List<PersonCertification>>() {}
-        ).getBody();
-    }
+    return restTemplate.exchange(
+        url,
+        HttpMethod.GET,
+        null,
+        new ParameterizedTypeReference<List<PersonCertification>>() {}
+    ).getBody();
 }
 ```
 
-> [!NOTE]
-> Agregar la constante en `PathV2.java` es **opcional** pero **altamente recomendado** para mantener consistencia con el resto de la API y facilitar el consumo por otros servicios.
+#### 5.4. Extensiones Potenciales de la Librería
 
-#### 5.4. Modificaciones Opcionales en Library
+Dependiendo de los requerimientos específicos de integración, se pueden considerar las siguientes extensiones:
 
-Además de `PathV2.java`, hay otras modificaciones opcionales que puedes considerar según tus necesidades:
+**A. Inclusión en DTO `Person`**
 
-##### **A. Agregar Certificaciones al DTO `Person`** ⚠️
+- **Descripción:** Agregar la lista de certificaciones al DTO principal `Person`.
+- **Caso de Uso:** Cuando se requiere que el endpoint `GET /v2/people/{id}` retorne la información completa de la persona, incluyendo sus certificaciones.
 
-**Ubicación:** `library/model/src/main/java/ar/com/bds/lib/peoplecenter/model/Person.java`
+**B. Enum `CertificationType`**
 
-El DTO `Person` contiene listas de todos los sub-recursos (addresses, contacts, documents, etc.). Puedes agregar la lista de certificaciones para mantener consistencia:
+- **Descripción:** Crear un Enum para los códigos de certificación.
+- **Caso de Uso:** Cuando el conjunto de códigos de certificación es estático y se requiere validación estricta en tiempo de compilación.
 
-```java
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
-public class Person implements HasId {
-    
-    // ... campos existentes ...
-    
-    @Valid
-    @Builder.Default
-    private List<TaxpayersProfile> taxpayersProfiles = new ArrayList<>();
-    
-    // ✅ AGREGAR esta nueva lista (OPCIONAL)
-    @Valid
-    @Builder.Default
-    private List<PersonCertification> certifications = new ArrayList<>();
-    
-    @Valid
-    @Builder.Default
-    private List<Document> documents = new ArrayList<>();
-    
-    // ... resto de campos ...
-}
-```
+**C. Métodos en `PeopleCenterClient`**
 
-**¿Cuándo agregarlo?**
-
-| Escenario | ¿Agregar? | Razón |
-|-----------|-----------|-------|
-| Quieres que `GET /v2/people/{id}` incluya certificaciones | ✅ Sí | Las certificaciones se cargarán automáticamente con la persona |
-| Solo accederás a certificaciones vía `/certifications` | ❌ No | No necesitas la lista en `Person` |
-| Otros servicios necesitan certificaciones al obtener personas | ✅ Sí | Facilita el consumo de datos completos |
-| Quieres mantener consistencia con otros sub-recursos | ✅ Sí | Todos los sub-recursos están en `Person` |
-
-**Impacto:**
-
-- ✅ **Ventaja:** Datos completos en una sola llamada
-- ⚠️ **Desventaja:** Payload más grande en `GET /people/{id}`
-
-##### **B. Crear Enum para Tipos de Certificación** 🤔
-
-**Ubicación:** `library/model/src/main/java/ar/com/bds/lib/peoplecenter/model/enums/CertificationType.java`
-
-Si los códigos de certificación son **fijos y conocidos**, puedes crear un enum:
-
-```java
-package ar.com.bds.lib.peoplecenter.model.enums;
-
-public enum CertificationType {
-    CERT_IVA("Certificación IVA"),
-    CERT_GANANCIAS("Certificación Ganancias"),
-    CERT_INGRESOS_BRUTOS("Certificación Ingresos Brutos"),
-    CERT_SUSS("Certificación SUSS");
-    
-    private final String description;
-    
-    CertificationType(String description) {
-        this.description = description;
-    }
-    
-    public String getDescription() {
-        return description;
-    }
-}
-```
-
-**¿Cuándo crearlo?**
-
-| Escenario | ¿Crear Enum? | Razón |
-|-----------|--------------|-------|
-| Los códigos son **fijos** (ej: CERT_IVA, CERT_GANANCIAS) | ✅ Sí | Type-safety y validación en compile-time |
-| Los códigos son **dinámicos** (se agregan desde BD) | ❌ No | Usa `String` para flexibilidad |
-| Quieres validación estricta de códigos | ✅ Sí | El enum previene códigos inválidos |
-| Los códigos pueden cambiar frecuentemente | ❌ No | Evitas recompilar y redistribuir la library |
-
-**Impacto:**
-
-- ✅ **Ventaja:** Type-safety, autocomplete en IDEs
-- ⚠️ **Desventaja:** Menos flexible, requiere recompilar para nuevos tipos
-
-##### **C. Implementar Cliente HTTP** 🔗
-
-**Ubicación:** `library/client/src/main/java/ar/com/bds/lib/peoplecenter/client/PeopleCenterClient.java`
-
-Si otros microservicios van a consumir el endpoint frecuentemente, puedes agregar métodos al cliente HTTP:
-
-```java
-package ar.com.bds.lib.peoplecenter.client;
-
-import ar.com.bds.lib.peoplecenter.api.PathV2;
-import ar.com.bds.lib.peoplecenter.model.PersonCertification;
-import ar.com.bds.lib.peoplecenter.model.requests.CreatePersonCertificationRequest;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpMethod;
-import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestTemplate;
-
-import java.util.List;
-
-@Component
-public class PeopleCenterClient {
-    
-    private final RestTemplate restTemplate;
-    private final String baseUrl;
-    
-    // ... constructor y otros métodos ...
-    
-    // ✅ AGREGAR estos métodos (OPCIONAL)
-    
-    public Integer createCertification(Long personId, CreatePersonCertificationRequest request) {
-        String url = baseUrl + PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString());
-        return restTemplate.postForObject(url, request, Integer.class);
-    }
-    
-    public List<PersonCertification> getCertifications(Long personId) {
-        String url = baseUrl + PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString());
-        return restTemplate.exchange(
-            url,
-            HttpMethod.GET,
-            null,
-            new ParameterizedTypeReference<List<PersonCertification>>() {}
-        ).getBody();
-    }
-    
-    public PersonCertification getCertificationById(Long personId, Integer certificationId) {
-        String url = baseUrl + PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString()) 
-            + "/" + certificationId;
-        return restTemplate.getForObject(url, PersonCertification.class);
-    }
-    
-    public void deleteCertification(Long personId, Integer certificationId) {
-        String url = baseUrl + PathV2.CERTIFICATIONS_PATH.replace("{id}", personId.toString()) 
-            + "/" + certificationId;
-        restTemplate.delete(url);
-    }
-}
-```
-
-**¿Cuándo implementarlo?**
-
-| Escenario | ¿Implementar? | Razón |
-|-----------|---------------|-------|
-| Múltiples servicios consumirán este endpoint | ✅ Sí | Evita duplicar código de cliente en cada servicio |
-| Solo un servicio lo usará | ❌ No | Ese servicio puede crear su propio cliente |
-| Quieres estandarizar el consumo de la API | ✅ Sí | Todos usan el mismo cliente con la misma lógica |
-| Cada equipo prefiere sus propias implementaciones | ❌ No | Más flexibilidad para cada equipo |
-
-**Impacto:**
-
-- ✅ **Ventaja:** Código reutilizable, menos duplicación
-- ⚠️ **Desventaja:** Dependencia adicional para los clientes
-
-##### **Resumen de Modificaciones Opcionales**
-
-| Modificación | Prioridad | ¿Cuándo hacerla? | Archivo |
-|--------------|-----------|------------------|---------|
-| **Person.java** | 🟡 Media | Si quieres certificaciones en `GET /people/{id}` | `model/Person.java` |
-| **CertificationType Enum** | 🟢 Baja | Si los códigos son fijos y quieres type-safety | `model/enums/CertificationType.java` |
-| **Cliente HTTP** | 🟢 Baja | Si múltiples servicios consumirán el endpoint | `client/PeopleCenterClient.java` |
+- **Descripción:** Agregar métodos específicos en el cliente HTTP compartido.
+- **Caso de Uso:** Cuando múltiples microservicios requieren consumir el endpoint de certificaciones, evitando la duplicación de lógica de cliente.
 
 > [!TIP]
-> **Recomendación:** Comienza sin estas modificaciones opcionales. Agrégalas solo cuando identifiques la necesidad real en tu proyecto. Es mejor mantener la library simple y agregar funcionalidad según se requiera.
+> Se recomienda iniciar la implementación sin estas extensiones opcionales, incorporándolas únicamente cuando se identifique una necesidad concreta en el proyecto.
 
 ---
 
-### 6. **Crear el Mapper**
+### 6. Implementación del Mapper
 
 **Ubicación:** `microservice/src/main/java/ar/com/bds/people/center/mapper/PersonCertificationMapper.java`
 
@@ -744,7 +586,7 @@ public interface PersonCertificationMapper {
 
 ---
 
-### 7. **Crear el Servicio**
+### 7. Implementación de la Capa de Servicio
 
 **Ubicación:** `microservice/src/main/java/ar/com/bds/people/center/service/PersonCertificationService.java`
 
@@ -764,7 +606,7 @@ public interface PersonCertificationService {
 }
 ```
 
-#### 6.1. Implementación del Servicio
+#### 7.1. Implementación Concreta
 
 **Ubicación:** `microservice/src/main/java/ar/com/bds/people/center/service/impl/PersonCertificationServiceImpl.java`
 
@@ -804,467 +646,169 @@ public class PersonCertificationServiceImpl implements PersonCertificationServic
     @Override
     @Transactional
     public Integer create(Long personId, CreatePersonCertificationRequest request) {
-        log.info("Creating certification for person: {}", personId);
-        
-        // Validaciones
-        validateRequest(request);
-        
-        // Verificar que la persona existe
+        log.info("Creando certificación para persona id: {} con código: {}", personId, request.getCertificationCode());
+
         PersonEntity person = peopleCenterRepository.findById(personId)
-            .orElseThrow(() -> new ResourceNotFoundException("Person not found with id: " + personId));
-        
-        // Verificar que el código de certificación existe y está vigente
+                .orElseThrow(() -> new ResourceNotFoundException("Persona no encontrada con id: " + personId));
+
         CertificationEntity certification = certificationRepository.findByCode(request.getCertificationCode())
-            .orElseThrow(() -> new ResourceNotFoundException("Certification not found with code: " + request.getCertificationCode()));
-        
-        // Crear la entidad
+                .orElseThrow(() -> new ResourceNotFoundException("Certificación no encontrada con código: " + request.getCertificationCode()));
+
         PersonCertificationEntity entity = PersonCertificationEntity.builder()
-            .personId(person)
-            .url(request.getUrl())
-            .certification(certification)
-            .percentage(request.getPercentage())
-            .aliquot(request.getAliquot())
-            .startDate(request.getStartDate())
-            .endDate(request.getEndDate())
-            .build();
-        
-        PersonCertificationEntity saved = personCertificationRepository.save(entity);
-        log.info("Certification created with id: {}", saved.getId());
-        
-        return saved.getId();
+                .personId(person)
+                .certification(certification)
+                .url(request.getUrl())
+                .percentage(request.getPercentage())
+                .aliquot(request.getAliquot())
+                .startDate(request.getStartDate())
+                .endDate(request.getEndDate())
+                .build();
+
+        PersonCertificationEntity savedEntity = personCertificationRepository.save(entity);
+        return savedEntity.getId();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<PersonCertification> getValidCertifications(Long personId) {
-        log.info("Getting valid certifications for person: {}", personId);
-        
-        ZonedDateTime now = ZonedDateTime.now();
-        List<PersonCertificationEntity> entities = personCertificationRepository
-            .findValidCertifications(personId, now);
-        
-        return entities.stream()
-            .map(mapper::toDto)
-            .collect(Collectors.toList());
+        return personCertificationRepository.findValidCertifications(personId, ZonedDateTime.now())
+                .stream()
+                .map(mapper::toDto)
+                .collect(Collectors.toList());
     }
-
+    
     @Override
+    @Transactional(readOnly = true)
     public PersonCertification getById(Long personId, Integer certificationId) {
-        log.info("Getting certification {} for person: {}", certificationId, personId);
-        
-        PersonCertificationEntity entity = personCertificationRepository
-            .findByIdAndPersonId_Id(certificationId, personId)
-            .orElseThrow(() -> new ResourceNotFoundException(
-                String.format("Certification %d not found for person %d", certificationId, personId)));
-        
-        return mapper.toDto(entity);
+        return personCertificationRepository.findByIdAndPersonId_Id(certificationId, personId)
+                .map(mapper::toDto)
+                .orElseThrow(() -> new ResourceNotFoundException("Certificación no encontrada con id: " + certificationId));
     }
 
     @Override
     @Transactional
     public Integer delete(Long personId, Integer certificationId) {
-        log.info("Deleting certification {} for person: {}", certificationId, personId);
-        
-        PersonCertificationEntity entity = personCertificationRepository
-            .findByIdAndPersonId_Id(certificationId, personId)
-            .orElseThrow(() -> new ResourceNotFoundException(
-                String.format("Certification %d not found for person %d", certificationId, personId)));
+        PersonCertificationEntity entity = personCertificationRepository.findByIdAndPersonId_Id(certificationId, personId)
+                .orElseThrow(() -> new ResourceNotFoundException("Certificación no encontrada con id: " + certificationId));
         
         entity.setDeletedAt(ZonedDateTime.now());
         personCertificationRepository.save(entity);
-        
-        log.info("Certification {} deleted successfully", certificationId);
         return entity.getId();
-    }
-
-    private void validateRequest(CreatePersonCertificationRequest request) {
-        // Solo se permite un dato a la vez en percentage o aliquot
-        if (request.getPercentage() != null && request.getAliquot() != null) {
-            throw new IllegalArgumentException("Only one of 'percentage' or 'aliquot' can be specified");
-        }
-        
-        // La fecha desde debe ser menor a la hasta si se especifica
-        if (request.getStartDate() != null && request.getEndDate() != null) {
-            if (request.getStartDate().isAfter(request.getEndDate())) {
-                throw new IllegalArgumentException("Start date must be before end date");
-            }
-        }
     }
 }
 ```
 
 ---
 
-### 7. **Crear el Controlador**
+### 8. Implementación del Controlador REST
 
-**Ubicación:** `microservice/src/main/java/ar/com/bds/people/center/controller/CertificationsController.java`
+**Ubicación:** `microservice/src/main/java/ar/com/bds/people/center/controller/PersonCertificationController.java`
+
+El controlador expone los recursos a través de la API REST, delegando la lógica de negocio a la capa de servicio.
 
 ```java
 package ar.com.bds.people.center.controller;
 
+import ar.com.bds.lib.peoplecenter.api.PathV2;
 import ar.com.bds.lib.peoplecenter.model.requests.CreatePersonCertificationRequest;
 import ar.com.bds.lib.peoplecenter.model.PersonCertification;
 import ar.com.bds.people.center.service.PersonCertificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
 import java.util.List;
 
 @RestController
-@RequestMapping("/v1/people/{personId}/certifications")
-@Tag(name = "People Center - Certifications")
 @RequiredArgsConstructor
-@Slf4j
-@Validated
-public class CertificationsController {
+@Tag(name = "Certificaciones", description = "Gestión de certificaciones impositivas y legales de personas")
+public class PersonCertificationController {
 
-    private final PersonCertificationService certificationService;
+    private final PersonCertificationService service;
 
-    @PostMapping
-    @Operation(summary = "Create a new certification for a person")
-    public ResponseEntity<Integer> createCertification(
-            @PathVariable Long personId,
-            @Valid @RequestBody CreatePersonCertificationRequest request) {
+    @Operation(summary = "Crear certificación", description = "Asigna una nueva certificación a una persona existente")
+    @PostMapping(PathV2.CERTIFICATIONS_PATH)
+    public ResponseEntity<Integer> create(
+            @PathVariable Long id,
+            @RequestBody @Valid CreatePersonCertificationRequest request) {
         
-        log.info("POST /v1/people/{}/certifications - Request: {}", personId, request);
-        Integer certificationId = certificationService.create(personId, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(certificationId);
+        Integer certificationId = service.create(id, request);
+        return new ResponseEntity<>(certificationId, HttpStatus.CREATED);
     }
 
-    @GetMapping
-    @Operation(summary = "Get all valid certifications for a person")
-    public ResponseEntity<List<PersonCertification>> getValidCertifications(
-            @PathVariable Long personId) {
-        
-        log.info("GET /v1/people/{}/certifications", personId);
-        List<PersonCertification> certifications = certificationService.getValidCertifications(personId);
-        return ResponseEntity.ok(certifications);
+    @Operation(summary = "Listar certificaciones válidas", description = "Obtiene las certificaciones vigentes de una persona")
+    @GetMapping(PathV2.CERTIFICATIONS_PATH)
+    public ResponseEntity<List<PersonCertification>> getValidCertifications(@PathVariable Long id) {
+        return ResponseEntity.ok(service.getValidCertifications(id));
     }
 
-    @GetMapping("/{idEntity}")
-    @Operation(summary = "Get a specific certification by ID")
-    public ResponseEntity<PersonCertification> getCertificationById(
-            @PathVariable Long personId,
-            @PathVariable Integer idEntity) {
-        
-        log.info("GET /v1/people/{}/certifications/{}", personId, idEntity);
-        PersonCertification certification = certificationService.getById(personId, idEntity);
-        return ResponseEntity.ok(certification);
+    @Operation(summary = "Obtener certificación por ID", description = "Recupera el detalle de una certificación específica")
+    @GetMapping(PathV2.CERTIFICATIONS_PATH + "/{certificationId}")
+    public ResponseEntity<PersonCertification> getById(
+            @PathVariable Long id,
+            @PathVariable Integer certificationId) {
+        return ResponseEntity.ok(service.getById(id, certificationId));
     }
 
-    @DeleteMapping("/{idEntity}")
-    @Operation(summary = "Logically delete a certification")
-    public ResponseEntity<Integer> deleteCertification(
-            @PathVariable Long personId,
-            @PathVariable Integer idEntity) {
-        
-        log.info("DELETE /v1/people/{}/certifications/{}", personId, idEntity);
-        Integer deletedId = certificationService.delete(personId, idEntity);
-        return ResponseEntity.ok(deletedId);
+    @Operation(summary = "Eliminar certificación", description = "Realiza el borrado lógico de una certificación")
+    @DeleteMapping(PathV2.CERTIFICATIONS_PATH + "/{certificationId}")
+    public ResponseEntity<Void> delete(
+            @PathVariable Long id,
+            @PathVariable Integer certificationId) {
+        service.delete(id, certificationId);
+        return ResponseEntity.noContent().build();
     }
 }
 ```
 
 ---
 
-### 8. **Crear Tests Unitarios**
+### 9. Manejo de Excepciones
 
-**Ubicación:** `microservice/src/test/java/ar/com/bds/people/center/service/impl/PersonCertificationServiceImplTest.java`
+El sistema utiliza un manejador global de excepciones (`@ControllerAdvice`). Para este módulo, se deben considerar las siguientes excepciones estándar:
 
-```java
-package ar.com.bds.people.center.service.impl;
+| Excepción | Código HTTP | Escenario |
+|-----------|-------------|-----------|
+| `ResourceNotFoundException` | 404 Not Found | Persona o Certificación no encontrada. |
+| `MethodArgumentNotValidException` | 400 Bad Request | Error en validación de campos (ej: URL vacía, porcentajes inválidos). |
+| `DataIntegrityViolationException` | 409 Conflict | Violación de restricciones de base de datos (ej: código duplicado). |
 
-import ar.com.bds.exception.ResourceNotFoundException;
-import ar.com.bds.lib.peoplecenter.model.requests.CreatePersonCertificationRequest;
-import ar.com.bds.people.center.entity.CertificationEntity;
-import ar.com.bds.people.center.entity.PersonCertificationEntity;
-import ar.com.bds.people.center.entity.PersonEntity;
-import ar.com.bds.people.center.mapper.PersonCertificationMapper;
-import ar.com.bds.people.center.repository.CertificationRepository;
-import ar.com.bds.people.center.repository.PersonCertificationRepository;
-import ar.com.bds.people.center.repository.PeopleCenterRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+**Ejemplo de respuesta de error:**
 
-import java.math.BigDecimal;
-import java.time.ZonedDateTime;
-import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-
-@ExtendWith(MockitoExtension.class)
-class PersonCertificationServiceImplTest {
-
-    @Mock
-    private PersonCertificationRepository personCertificationRepository;
-
-    @Mock
-    private CertificationRepository certificationRepository;
-
-    @Mock
-    private PeopleCenterRepository peopleCenterRepository;
-
-    @Mock
-    private PersonCertificationMapper mapper;
-
-    @InjectMocks
-    private PersonCertificationServiceImpl service;
-
-    private PersonEntity mockPerson;
-    private CertificationEntity mockCertification;
-    private CreatePersonCertificationRequest validRequest;
-
-    @BeforeEach
-    void setUp() {
-        mockPerson = PersonEntity.builder()
-            .id(1L)
-            .build();
-
-        mockCertification = CertificationEntity.builder()
-            .id(1)
-            .code("CERT_IVA")
-            .name("Certificación IVA")
-            .build();
-
-        validRequest = CreatePersonCertificationRequest.builder()
-            .url("http://example.com/cert.pdf")
-            .certificationCode("CERT_IVA")
-            .percentage(new BigDecimal("0.25"))
-            .build();
-    }
-
-    @Test
-    void create_ShouldCreateCertification_WhenValidRequest() {
-        // Arrange
-        when(peopleCenterRepository.findById(1L)).thenReturn(Optional.of(mockPerson));
-        when(certificationRepository.findByCode("CERT_IVA")).thenReturn(Optional.of(mockCertification));
-        
-        PersonCertificationEntity savedEntity = PersonCertificationEntity.builder()
-            .id(1)
-            .build();
-        when(personCertificationRepository.save(any())).thenReturn(savedEntity);
-
-        // Act
-        Integer result = service.create(1L, validRequest);
-
-        // Assert
-        assertNotNull(result);
-        assertEquals(1, result);
-        verify(personCertificationRepository).save(any(PersonCertificationEntity.class));
-    }
-
-    @Test
-    void create_ShouldThrowException_WhenBothPercentageAndAliquotProvided() {
-        // Arrange
-        validRequest.setAliquot(new BigDecimal("0.10"));
-
-        // Act & Assert
-        assertThrows(IllegalArgumentException.class, () -> service.create(1L, validRequest));
-    }
-
-    @Test
-    void create_ShouldThrowException_WhenPersonNotFound() {
-        // Arrange
-        when(peopleCenterRepository.findById(1L)).thenReturn(Optional.empty());
-
-        // Act & Assert
-        assertThrows(ResourceNotFoundException.class, () -> service.create(1L, validRequest));
-    }
-
-    @Test
-    void create_ShouldThrowException_WhenStartDateAfterEndDate() {
-        // Arrange
-        validRequest.setStartDate(ZonedDateTime.now().plusDays(10));
-        validRequest.setEndDate(ZonedDateTime.now());
-
-        // Act & Assert
-        assertThrows(IllegalArgumentException.class, () -> service.create(1L, validRequest));
-    }
+```json
+{
+  "timestamp": "2023-10-27T10:30:00.000Z",
+  "status": 404,
+  "error": "Not Found",
+  "message": "Certificación no encontrada con código: CERT_INEXISTENTE",
+  "path": "/v2/people/123/certifications"
 }
 ```
 
 ---
 
-### 9. **Crear Tests de Integración**
+### 10. Verificación y Pruebas
 
-**Ubicación:** `microservice/src/test/java/ar/com/bds/people/center/controller/CertificationsControllerIntegrationTest.java`
+Para garantizar la calidad de la implementación, se requiere la ejecución de las siguientes pruebas:
 
-```java
-package ar.com.bds.people.center.controller;
+1. **Pruebas Unitarias (`@ExtendWith(MockitoExtension.class)`):**
+    - Verificar la lógica de negocio en `PersonCertificationServiceImpl`.
+    - Validar el mapeo correcto en `PersonCertificationMapper`.
 
-import ar.com.bds.lib.peoplecenter.model.requests.CreatePersonCertificationRequest;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+2. **Pruebas de Integración (`@SpringBootTest`):**
+    - Verificar el flujo completo desde el Controlador hasta la Base de Datos.
+    - Validar las restricciones de base de datos (Foreign Keys, Unique Constraints).
 
-import java.math.BigDecimal;
-
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
-@SpringBootTest
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
-@Transactional
-class CertificationsControllerIntegrationTest {
-
-    @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private ObjectMapper objectMapper;
-
-    @Test
-    void createCertification_ShouldReturn201_WhenValidRequest() throws Exception {
-        CreatePersonCertificationRequest request = CreatePersonCertificationRequest.builder()
-            .url("http://example.com/cert.pdf")
-            .certificationCode("CERT_IVA")
-            .percentage(new BigDecimal("0.25"))
-            .build();
-
-        mockMvc.perform(post("/v1/people/1/certifications")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isCreated())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON));
-    }
-
-    @Test
-    void getValidCertifications_ShouldReturn200() throws Exception {
-        mockMvc.perform(get("/v1/people/1/certifications"))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON));
-    }
-
-    @Test
-    void getCertificationById_ShouldReturn200_WhenExists() throws Exception {
-        mockMvc.perform(get("/v1/people/1/certifications/1"))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON));
-    }
-
-    @Test
-    void deleteCertification_ShouldReturn200() throws Exception {
-        mockMvc.perform(delete("/v1/people/1/certifications/1"))
-            .andExpect(status().isOk());
-    }
-}
-```
+3. **Validación de API:**
+    - Verificar que los endpoints responden correctamente a las rutas definidas en `PathV2`.
+    - Confirmar que la documentación Swagger/OpenAPI se genera correctamente.
 
 ---
 
-## Resumen de Archivos a Crear/Modificar
+## Conclusión
 
-### Archivos Nuevos
-
-| # | Archivo | Descripción |
-|---|---------|-------------|
-| 1 | `V25__create_certification_tables.sql` | Migración de base de datos |
-| 2 | `CertificationEntity.java` | Entidad JPA para certificaciones |
-| 3 | `PersonCertificationEntity.java` | Entidad JPA para certificaciones de personas |
-| 4 | `CertificationRepository.java` | Repositorio para certificaciones |
-| 5 | `PersonCertificationRepository.java` | Repositorio para certificaciones de personas |
-| 6 | `Certification.java` | DTO para certificación |
-| 7 | `PersonCertification.java` | DTO para certificación de persona |
-| 8 | `CreatePersonCertificationRequest.java` | DTO para request de creación |
-| 9 | `PersonCertificationMapper.java` | Mapper MapStruct |
-| 10 | `PersonCertificationService.java` | Interfaz del servicio |
-| 11 | `PersonCertificationServiceImpl.java` | Implementación del servicio |
-| 12 | `CertificationsController.java` | Controlador REST |
-| 13 | `PersonCertificationServiceImplTest.java` | Tests unitarios |
-| 14 | `CertificationsControllerIntegrationTest.java` | Tests de integración |
-
----
-
-## Checklist de Implementación
-
-- [ ] Crear migración de base de datos
-- [ ] Ejecutar migración y verificar tablas creadas
-- [ ] Crear entidades JPA
-- [ ] Crear repositorios
-- [ ] Crear DTOs en el módulo library
-- [ ] Crear mappers
-- [ ] Crear interfaz de servicio
-- [ ] Implementar servicio con validaciones
-- [ ] Crear controlador REST
-- [ ] Crear tests unitarios
-- [ ] Crear tests de integración
-- [ ] Ejecutar todos los tests
-- [ ] Verificar cobertura de código
-- [ ] Probar endpoints con Postman/Swagger
-- [ ] Actualizar documentación de API
-- [ ] Code review
-- [ ] Merge a rama principal
-
----
-
-## Comandos Útiles
-
-### Compilar el proyecto
-
-```bash
-mvn clean install
-```
-
-### Ejecutar tests
-
-```bash
-mvn test
-```
-
-### Ejecutar la aplicación
-
-```bash
-mvn spring-boot:run
-```
-
-### Acceder a Swagger UI
-
-```
-http://localhost:8080/swagger-ui.html
-```
-
----
-
-## Notas Importantes
-
-> [!WARNING]
->
-> - Asegúrate de que el número de versión de la migración sea secuencial y único
-> - Los DTOs deben estar en el módulo `library/model` para ser compartidos
-> - Todas las fechas deben usar formato ISO 8601
-> - Los valores decimales (percentage, aliquot) son sobre 100 (ej: 25% = 0.25)
-
-> [!TIP]
->
-> - Usa Lombok para reducir código boilerplate
-> - MapStruct genera automáticamente el código de mapeo en tiempo de compilación
-> - Spring Boot DevTools permite hot reload durante el desarrollo
-> - Usa `@Transactional` en métodos que modifican datos
-
----
-
-## Recursos Adicionales
-
-- [Spring Boot Documentation](https://spring.io/projects/spring-boot)
-- [MapStruct Documentation](https://mapstruct.org/)
-- [Flyway Migrations](https://flywaydb.org/)
-- [JPA/Hibernate Guide](https://hibernate.org/orm/documentation/)
+La implementación del módulo de Certificaciones debe seguir estrictamente esta especificación para asegurar la consistencia con la arquitectura de `people-center`. Cualquier desviación de este diseño debe ser discutida y aprobada por el equipo de arquitectura.
