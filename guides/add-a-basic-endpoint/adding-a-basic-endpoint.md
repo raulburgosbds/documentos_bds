@@ -41,7 +41,6 @@ Este documento define las especificaciones técnicas y el procedimiento detallad
    - [9. Manejo de Excepciones](#9-manejo-de-excepciones)
    - [10. Verificación y Pruebas](#10-verificación-y-pruebas)
      - [10.1. Pruebas Unitarias (Service)](#101-pruebas-unitarias-service)
-     - [10.2. Pruebas de Integración (Controller)](#102-pruebas-de-integración-controller)
 4. [Conclusión](#conclusión)
 
 ---
