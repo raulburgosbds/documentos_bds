@@ -97,26 +97,6 @@ Este método es necesario para obtener las certificaciones existentes de una per
 Set<PersonCertificationEntity> findByPersonId(PersonEntity personId);
 ```
 
-### 2.3 Actualizar Tipos de ID
-
-Cambiar todos los `Integer` a `Long`:
-
-```java
-// Antes
-Optional<PersonCertificationEntity> findByIdAndPersonId_Id(Integer id, Long personId);
-
-// Después
-Optional<PersonCertificationEntity> findByIdAndPersonId_Id(Long id, Long personId);
-```
-
-### 2.4 Agregar Import
-
-```java
-import java.util.Set;
-```
-
----
-
 ## Paso 3: Actualizar la Interfaz del Servicio
 
 ### 3.1 Agregar Parámetro TypeOfManagement al Método create()
@@ -133,40 +113,17 @@ Long create(Long personId, CreatePersonCertificationRequest request, TypeOfManag
 
 **Archivo**: [PersonCertificationService.java](file:///c:/repos/bds/people-center/microservice/src/main/java/ar/com/bds/people/center/service/PersonCertificationService.java)
 
-### 3.2 Actualizar Tipos de Retorno
-
-Cambiar `Integer` a `Long` en todos los métodos:
-
-```java
-Long create(Long personId, CreatePersonCertificationRequest request, TypeOfManagement typeOfManagement);
-PersonCertification getById(Long personId, Long certificationId);
-Long delete(Long personId, Long certificationId);
-```
-
 ### 3.3 Agregar Import
 
 ```java
 import ar.com.bds.lib.peoplecenter.model.enums.TypeOfManagement;
 ```
 
----
-
 ## Paso 4: Implementar la Lógica en el Servicio
 
 ### 4.1 Actualizar el Método create()
 
 **Archivo**: [PersonCertificationServiceImpl.java](file:///c:/repos/bds/people-center/microservice/src/main/java/ar/com/bds/people/center/service/impl/PersonCertificationServiceImpl.java)
-
-#### 4.1.1 Actualizar Firma del Método
-
-```java
-@Override
-@Transactional
-public Long create(Long personId, CreatePersonCertificationRequest request, TypeOfManagement typeOfManagement) {
-    log.info("Creating certification for person: {} with strategy: {}", personId, typeOfManagement);
-    // ...
-}
-```
 
 #### 4.1.2 Obtener Certificaciones Existentes
 
@@ -193,23 +150,6 @@ PersonCertificationEntity saved = personCertificationRepository.saveWithTypeOfMa
     existingCertifications, 
     typeOfManagement
 );
-```
-
-### 4.2 Actualizar Tipos de Parámetros
-
-Cambiar `Integer` a `Long` en los métodos `getById()` y `delete()`:
-
-```java
-@Override
-public PersonCertification getById(Long personId, Long certificationId) {
-    // ...
-}
-
-@Override
-@Transactional
-public Long delete(Long personId, Long certificationId) {
-    // ...
-}
 ```
 
 ### 4.3 Agregar Imports
@@ -244,9 +184,7 @@ public ResponseEntity<Long> createCertification(
 > [!TIP]
 > El parámetro `create-type` tiene valor por defecto `ONLY`, lo que significa que si no se especifica, se comportará como antes (solo crear sin verificar duplicados).
 
-### 5.2 Actualizar Tipos de Retorno y Parámetros
-
-Cambiar `Integer` a `Long` en todos los endpoints:
+### 5.2 Actualizar Parámetros
 
 ```java
 // GET by ID
@@ -281,10 +219,7 @@ import ar.com.bds.lib.peoplecenter.model.enums.TypeOfManagement;
 Agregar el parámetro `TypeOfManagement.ONLY` en todas las llamadas al método `create()`:
 
 ```java
-// Antes
-Integer id = service.create(personId, request);
 
-// Después
 Long id = service.create(personId, request, TypeOfManagement.ONLY);
 ```
 
@@ -295,72 +230,29 @@ Long id = service.create(personId, request, TypeOfManagement.ONLY);
 #### 6.2.1 Actualizar Mocks
 
 ```java
-// Antes
-when(certificationService.create(eq(personId), any(CreatePersonCertificationRequest.class)))
-    .thenReturn(1);
 
-// Después
 when(certificationService.create(eq(personId), any(CreatePersonCertificationRequest.class), any(TypeOfManagement.class)))
     .thenReturn(1L);
 ```
 
 #### 6.2.2 Actualizar Assertions de Tipos
 
-Cambiar `Integer` a `Long` en todas las verificaciones:
-
 ```java
-// Antes
-verify(certificationService).create(eq(personId), any(CreatePersonCertificationRequest.class));
 
-// Después
 verify(certificationService).create(eq(personId), any(CreatePersonCertificationRequest.class), any(TypeOfManagement.class));
 ```
 
----
-
-## Paso 7: Corrección de Migración (Bonus)
-
-### 7.1 Actualizar Tipos en la Migración SQL
-
-Para que los tipos de la base de datos coincidan con las entidades Java:
-
-**Archivo**: [V26__create_certification_tables.sql](file:///c:/repos/bds/people-center/microservice/src/main/resources/db/migration/V26__create_certification_tables.sql)
-
-```sql
--- Antes
-CREATE TABLE IF NOT EXISTS `certification` (
-    `id` INT NOT NULL AUTO_INCREMENT,
-    -- ...
-);
-
--- Después
-CREATE TABLE IF NOT EXISTS `certification` (
-    `id` BIGINT NOT NULL AUTO_INCREMENT,
-    -- ...
-);
-```
-
-```sql
--- Antes
-`certification_id` INT NOT NULL,
-
--- Después
-`certification_id` BIGINT NOT NULL,
-```
-
----
 
 ## Resumen de Cambios por Archivo
 
 | Archivo | Cambios Principales |
 |---------|---------------------|
-| **PersonCertificationEntity** | Implementar `HasId`, `HasDeleted`, `HasType`; cambiar `id` a `Long` |
+| **PersonCertificationEntity** | Implementar `HasId`, `HasDeleted`, `HasType` |
 | **PersonCertificationRepository** | Extender `JpaRepositoryWithTypeOfManagement`; agregar `findByPersonId()` |
-| **PersonCertificationService** | Agregar parámetro `TypeOfManagement` a `create()`; cambiar tipos a `Long` |
+| **PersonCertificationService** | Agregar parámetro `TypeOfManagement` a `create()` |
 | **PersonCertificationServiceImpl** | Usar `saveWithTypeOfManagement()`; obtener certificaciones existentes |
 | **CertificationsController** | Agregar `@RequestParam` para TypeOfManagement; actualizar tipos |
 | **Tests** | Agregar `TypeOfManagement.ONLY` en llamadas; actualizar mocks y assertions |
-| **Migración SQL** | Cambiar `INT` a `BIGINT` para consistencia con `Long` |
 
 ---
 
@@ -368,9 +260,9 @@ CREATE TABLE IF NOT EXISTS `certification` (
 
 ### Estrategias Disponibles
 
-1. **ONLY**: Solo crea si no existe duplicado del mismo tipo
-2. **REPLACE**: Reemplaza (soft delete) duplicados existentes del mismo tipo
-3. **ALLOW_MULTIPLE**: Permite múltiples registros del mismo tipo
+1. **ONLY**: Solo guarda, no toca nada
+2. **REMOVING_SAME_TYPE**: Borra del mismo tipo
+3. **REMOVING_REST**: Borra todo lo demas 
 
 ### Ejemplo de Uso en API
 
@@ -382,10 +274,10 @@ POST /v2/people/123/certifications
 POST /v2/people/123/certifications?create-type=ONLY
 
 # Reemplazar certificación existente del mismo tipo
-POST /v2/people/123/certifications?create-type=REPLACE
+POST /v2/people/123/certifications?create-type=REMOVING_SAME_TYPE
 
 # Permitir múltiples certificaciones del mismo tipo
-POST /v2/people/123/certifications?create-type=ALLOW_MULTIPLE
+POST /v2/people/123/certifications?create-type=REMOVING_REST
 ```
 
 ### Flujo de Ejecución
@@ -397,16 +289,14 @@ graph TD
     C --> D[Repository.findByPersonId]
     D --> E[Service llama saveWithTypeOfManagement]
     E --> F{TypeOfManagement?}
-    F -->|ONLY| G[Verifica duplicados por tipo]
-    F -->|REPLACE| H[Marca duplicados como deleted]
-    F -->|ALLOW_MULTIPLE| I[Permite duplicados]
+    F -->|ONLY| G[Permite duplicados, Solo guarda, no toca nada]
+    F -->|REMOVING_SAME_TYPE| H[Borra del mismo tipo]
+    F -->|REMOVING_REST| I[Borra todo lo demás]
     G --> J[Guarda nueva certificación]
     H --> J
     I --> J
     J --> K[Retorna ID de certificación]
 ```
-
----
 
 ## Beneficios de la Integración
 
