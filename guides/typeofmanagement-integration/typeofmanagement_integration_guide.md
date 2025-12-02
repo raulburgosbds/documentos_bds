@@ -74,7 +74,7 @@ Cambiar la interfaz base del repositorio:
 
 **Antes**:
 ```java
-public interface PersonCertificationRepository extends JpaRepository<PersonCertificationEntity, Integer> {
+public interface PersonCertificationRepository extends JpaRepository<PersonCertificationEntity, Long> {
     // ...
 }
 ```
@@ -103,7 +103,7 @@ Set<PersonCertificationEntity> findByPersonId(PersonEntity personId);
 
 **Antes**:
 ```java
-Integer create(Long personId, CreatePersonCertificationRequest request);
+Long create(Long personId, CreatePersonCertificationRequest request);
 ```
 
 **Después**:
@@ -113,7 +113,7 @@ Long create(Long personId, CreatePersonCertificationRequest request, TypeOfManag
 
 **Archivo**: [PersonCertificationService.java](file:///c:/repos/bds/people-center/microservice/src/main/java/ar/com/bds/people/center/service/PersonCertificationService.java)
 
-### 3.3 Agregar Import
+### 3.2 Agregar Import
 
 ```java
 import ar.com.bds.lib.peoplecenter.model.enums.TypeOfManagement;
@@ -125,7 +125,7 @@ import ar.com.bds.lib.peoplecenter.model.enums.TypeOfManagement;
 
 **Archivo**: [PersonCertificationServiceImpl.java](file:///c:/repos/bds/people-center/microservice/src/main/java/ar/com/bds/people/center/service/impl/PersonCertificationServiceImpl.java)
 
-#### 4.1.2 Obtener Certificaciones Existentes
+### 4.2 Obtener Certificaciones Existentes
 
 Antes de guardar, obtener las certificaciones existentes de la persona:
 
@@ -134,7 +134,7 @@ Set<PersonCertificationEntity> existingCertifications =
     personCertificationRepository.findByPersonId(person);
 ```
 
-#### 4.1.3 Usar saveWithTypeOfManagement()
+### 4.3 Usar saveWithTypeOfManagement()
 
 Reemplazar el `save()` tradicional con el método que maneja duplicados:
 
@@ -152,7 +152,7 @@ PersonCertificationEntity saved = personCertificationRepository.saveWithTypeOfMa
 );
 ```
 
-### 4.3 Agregar Imports
+### 4.4 Agregar Imports
 
 ```java
 import ar.com.bds.lib.peoplecenter.model.enums.TypeOfManagement;
@@ -184,25 +184,7 @@ public ResponseEntity<Long> createCertification(
 > [!TIP]
 > El parámetro `create-type` tiene valor por defecto `ONLY`, lo que significa que si no se especifica, se comportará como antes (solo crear sin verificar duplicados).
 
-### 5.2 Actualizar Parámetros
-
-```java
-// GET by ID
-public ResponseEntity<PersonCertification> getCertificationById(
-        @PathVariable Long personId,
-        @PathVariable Long idEntity) {
-    // ...
-}
-
-// DELETE
-public ResponseEntity<Long> deleteCertification(
-        @PathVariable Long personId,
-        @PathVariable Long idEntity) {
-    // ...
-}
-```
-
-### 5.3 Agregar Import
+### 5.2 Agregar Import
 
 ```java
 import ar.com.bds.lib.peoplecenter.model.enums.TypeOfManagement;
