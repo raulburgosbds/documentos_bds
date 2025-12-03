@@ -15,15 +15,15 @@ La entidad debe estar anotada con @where para filtrar automáticamente los regis
 Agrega en cada una de tus entidades relacionadas, EJEMPLO:
 
 ```java
-@Where(clause = "deleted_at IS NULL")   //<---- ANOTA CADA ENTITY CLASS ASI
+@Where(clause = "deleted_at IS NULL") //<---- ANOTA CADA ENTITY CLASS ASI
 public class CertificationEntity { 
-    ....
-    ....
+    // ....
+}
 
-@Where(clause = "deleted_at IS NULL")   //<---- ANOTA CADA ENTITY CLASS ASI
-public class PersonCertificationEntity implements HasId, HasDeleted, HasType {
-    ....
-    ....
+@Where(clause = "deleted_at IS NULL") //<---- ANOTA CADA ENTITY CLASS ASI
+public class PersonCertificationEntity {
+    // ....
+}
 ```
 
 ### 1.1 Implementar Interfaces Requeridas
