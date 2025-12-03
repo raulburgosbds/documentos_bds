@@ -1,4 +1,4 @@
-# Guía de Integración: TypeOfManagement en PersonCertification
+# Ejemplo de Integración: TypeOfManagement en PersonCertification
 
 ## Introducción
 
@@ -7,6 +7,24 @@ Este documento explica paso a paso cómo se integró la estrategia **TypeOfManag
 ---
 
 ## Paso 1: Preparar la Entidad PersonCertificationEntity
+
+### 1.0 Verificar que las entidades esten anotadas con ***@where***
+
+La entidad debe estar anotada con @where para filtrar automáticamente los registros eliminados lógicamente
+
+Agrega en cada una de tus entidades relacionadas, EJEMPLO:
+
+```java
+@Where(clause = "deleted_at IS NULL")   //<---- ANOTA CADA ENTITY CLASS ASI
+public class CertificationEntity { 
+    ....
+    ....
+
+@Where(clause = "deleted_at IS NULL")   //<---- ANOTA CADA ENTITY CLASS ASI
+public class PersonCertificationEntity implements HasId, HasDeleted, HasType {
+    ....
+    ....
+```
 
 ### 1.1 Implementar Interfaces Requeridas
 
