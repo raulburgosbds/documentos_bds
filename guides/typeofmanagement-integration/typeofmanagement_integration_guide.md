@@ -86,7 +86,7 @@ public String getType() {
 
 ## Paso 2: Actualizar el Repositorio
 
-### 2.1 Extender JpaRepositoryWithTypeOfManagement
+### 2.1.1 Extender JpaRepositoryWithTypeOfManagement
 
 Cambiar la interfaz base del repositorio:
 
@@ -106,6 +106,27 @@ public interface PersonCertificationRepository extends
 ```
 
 **Archivo**: [PersonCertificationRepository.java](file:///c:/repos/bds/people-center/microservice/src/main/java/ar/com/bds/people/center/repository/PersonCertificationRepository.java)
+
+### 2.1.2 Extender JpaRepositoryWithTypeAndOriginManagement
+ 
+Cambiar la interfaz base del repositorio:
+ 
+**Antes**:
+```java
+public interface PersonTaxJurisdictionRepository extends JpaRepository<PersonTaxJurisdictionEntity, Long> {
+    // ...
+}
+```
+ 
+**Después**:
+```java
+public interface PersonTaxJurisdictionRepository extends JpaRepositoryWithTypeAndOriginManagement<PersonTaxJurisdictionEntity, Long> {
+    // ...
+}
+```
+ 
+**Archivo**: [PersonCertificationRepository.java](file:///c:/repos/bds/people-center/microservice/src/main/java/ar/com/bds/people/center/repository/PersonTaxJurisdictionRepository.java)
+
 
 ### 2.2 Agregar Método findByPersonId
 
