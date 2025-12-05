@@ -1,0 +1,15 @@
+name: people-center
+services:
+  people-center-db:
+    container_name: people-center-db
+    image: mysql:8.0
+    restart: always
+    volumes:
+      - ./data:/var/lib/mysql
+    environment:
+      - MYSQL_USER=admin
+      - MYSQL_PASSWORD=admin$1234
+      - MYSQL_ROOT_PASSWORD=admin$1234
+      - MYSQL_DATABASE=people-center
+    ports:
+      - '3306:3306'
