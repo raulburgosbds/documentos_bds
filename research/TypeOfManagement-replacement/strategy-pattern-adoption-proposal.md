@@ -115,7 +115,86 @@ A pesar de que una de las interfaces se llama `JpaRepositoryWithTypeOfManagement
 
 ### 1.2. Jerarquía de Interfaces del Repositorio
 
-El diseño actual utiliza una jerarquía de interfaces que extienden progresivamente la funcionalidad de Spring Data JPA:
+El diseño actual utiliza una jerarquía de interfaces que extienden progresivamente la funcionalidad. A continuación se muestran las implementaciones clave en orden de herencia:
+
+#### Nivel 1: JpaRepositoryWithTypeOfManagement (Base)
+
+Esta interfaz define el comportamiento base pero **desconoce** el concepto de "Origen".
+
+```java
+@NoRepositoryBean
+public interface JpaRepositoryWithTypeOfManagement<T extends HasDeleted & HasType & HasId, ID> 
+        extends JpaRepositoryWithTypeOfManagementStrategy<T, ID> {
+
+    @Override
+    default T saveWithTypeOfManagement(T entity, Set<T> listEntities, TypeOfManagement typeOfManagement) {
+        switch (typeOfManagement) {
+            case REMOVING_SAME_TYPE_AND_ORIGIN:
+                // ERROR: Esta interfaz NO sabe qué es "Origin", por tanto no puede filtrar por él.
+                // Lanza excepción para avisar al desarrollador que use la interfaz correcta.
+                throw new TypeOfManagementNotSupportedException(MANAGMENT_NOT_SUPPORTED_MESSAGE);
+                
+            case REMOVING_SAME_TYPE:
+                return this.createRemovingSameType(entity, listEntities);
+                
+            case REMOVING_REST:
+                return this.createRemovingRest(entity, listEntities);
+                
+            default:
+                return save(entity);
+        }
+    }
+    // ... implementación de createRemovingSameType ...
+}
+```
+
+#### Nivel 2: JpaRepositoryWithTypeAndOriginManagement (Extensión)
+
+Esta interfaz extiende a la anterior y añade soporte para entidades que tienen `Origin` (implementan `HasOrigin`).
+
+```java
+@NoRepositoryBean
+public interface JpaRepositoryWithTypeAndOriginManagement<T extends HasDeleted & HasType & HasId & HasOrigin, ID> 
+        extends JpaRepositoryWithTypeOfManagement<T, ID> {
+
+    @Override
+    default T saveWithTypeOfManagement(T entity, Set<T> listEntities, TypeOfManagement typeOfManagement) {
+        switch (typeOfManagement) {
+            case REMOVING_SAME_TYPE_AND_ORIGIN:
+                // AHORA SÍ: Esta interfaz conoce "Origin" y puede ejecutar la lógica correcta.
+                return this.createRemovingSameTypeAndOrigin(entity, listEntities);
+                
+            // Los demás casos delegan a la implementación del padre (super) o se repiten
+            case REMOVING_SAME_TYPE:
+                return this.createRemovingSameType(entity, listEntities);
+            // ...
+        }
+    }
+
+    default T createRemovingSameTypeAndOrigin(T newEntity, Set<T> listEntitiesSaved) {
+        listEntitiesSaved.stream()
+                .filter(entitySaved -> 
+                       entitySaved.getOrigin().equals(newEntity.getOrigin()) && // Filtra por Origen
+                       entitySaved.getType().equals(newEntity.getType()) && 
+                       !Objects.equals(entitySaved.getId(), newEntity.getId()))
+                .forEach(e -> {
+                    e.setDeleted(true);
+                    save(e);
+                });
+        return save(newEntity);
+    }
+}
+```
+
+#### ¿Por qué se lanza `TypeOfManagementNotSupportedException`?
+
+La excepción ocurre cuando intentas usar la estrategia `REMOVING_SAME_TYPE_AND_ORIGIN` en un repositorio que **solo implementa el Nivel 1**.
+
+Como esa interfaz base solo garantiza que la entidad tenga `Type` e `Id`, pero no `Origin`, físicamente **no puede compilar ni ejecutar** un filtro por origen (`e.getOrigin()`). La excepción es una validación en tiempo de ejecución (Runtime Check) para prevenir un uso incorrecto de la jerarquía.
+
+---
+
+### 1.3. Diagrama de la Jerarquía Completa
 
 ```mermaid
 classDiagram
