@@ -18,6 +18,7 @@ Este documento analiza el diseño actual basado en Enums y métodos `default` en
   - [2.3. Estrategia de Migración Paso a Paso](#23-estrategia-de-migración-paso-a-paso)
   - [2.4. Ejemplo Completo de Uso](#24-ejemplo-completo-de-uso)
   - [2.5. Ejemplo de Test Unitario](#25-ejemplo-de-test-unitario)
+  - [2.6. Integración con APIs Legacy (create-type)](#26-integración-con-apis-legacy-create-type)
 - [PARTE 3: Comparación de Ventajas](#parte-3-comparación-de-ventajas)
   - [3.1. Tabla Comparativa](#31-tabla-comparativa)
   - [3.2. Ventajas Específicas del Strategy Pattern](#32-ventajas-específicas-del-strategy-pattern)
@@ -832,6 +833,90 @@ class NewAndReplaceStrategyTest {
     }
 }
 ```
+
+---
+
+### 2.6. Integración con APIs Legacy (create-type)
+
+Un requisito común en este proyecto es mantener la retrocompatibilidad con clientes existentes que envían la estrategia como un parámetro de consulta (query param), por ejemplo:
+
+`POST /v2/people/123/certifications?create-type=REMOVING_SAME_TYPE`
+
+Para soportar este escenario dinámico donde la estrategia no se conoce hasta el tiempo de ejecución (runtime), reintroducir el uso de una **Factory** o **Resolver** es la solución ideal.
+
+#### 2.6.1. La Fábrica (Strategy Factory)
+
+Esta clase mapea el identificador antiguo (Enum) a la nueva implementación de estrategia.
+
+```java
+@Component
+public class ManagementStrategyFactory {
+    
+    // Inyectamos todas las estrategias viables
+    // Spring mapea automáticamente los beans que implementan la interfaz en un Map si usamos los nombres de los beans
+    // O podemos construirlos manualmente para mayor control:
+    
+    private final Map<TypeOfManagement, ManagementStrategy> strategyMap;
+
+    public ManagementStrategyFactory(
+            NewStrategy newStrategy,
+            NewAndReplaceStrategy newAndReplaceStrategy,
+            NewAndReplaceByOriginStrategy newAndReplaceByOriginStrategy) {
+            
+        this.strategyMap = Map.of(
+            TypeOfManagement.ONLY, newStrategy,
+            TypeOfManagement.REMOVING_SAME_TYPE, newAndReplaceStrategy,
+            TypeOfManagement.REMOVING_SAME_TYPE_AND_ORIGIN, newAndReplaceByOriginStrategy,
+            // Mapeo legacy para fallback:
+            TypeOfManagement.REMOVING_REST, newStrategy // O la implementación específica si existe
+        );
+    }
+
+    public <T extends HasType & HasId> ManagementStrategy<T> resolve(TypeOfManagement type) {
+        return strategyMap.getOrDefault(type, strategyMap.get(TypeOfManagement.ONLY));
+    }
+}
+```
+
+#### 2.6.2. Implementación en el Controller
+
+El controlador recibe el Enum antiguo y utiliza la Factory para obtener la lógica correcta.
+
+```java
+@RestController
+@RequestMapping("/v2/people")
+public class CertificationsController {
+
+    @Autowired
+    private CertificationService certificationService;
+    
+    // Inyectamos la Factory
+    @Autowired
+    private ManagementStrategyFactory strategyFactory; 
+
+    @PostMapping("/{personId}/certifications")
+    public ResponseEntity<Long> createCertification(
+            @PathVariable Long personId,
+            @RequestParam(name = "create-type", defaultValue = "ONLY") TypeOfManagement createType,
+            @RequestBody CertificationRequest request) {
+        
+        // 1. Resolvemos la estrategia basada en el parámetro URL
+        ManagementStrategy<CertificationEntity> strategy = strategyFactory.resolve(createType);
+        
+        // 2. Pasamos la estrategia resuelta al servicio
+        // NOTA: El servicio debe actualizarse para aceptar 'ManagementStrategy' en lugar de 'TypeOfManagement'
+        Long id = certificationService.create(personId, request, strategy);
+        
+        return ResponseEntity.status(HttpStatus.CREATED).body(id);
+    }
+}
+```
+
+**Beneficios de este enfoque híbrido:**
+
+1. **Retrocompatibilidad Total**: La API externa no cambia.
+2. **Core Moderno**: El servicio y el dominio usan el nuevo patrón Strategy.
+3. **Adaptación en la Frontera**: La conversión de Enum -> Strategy ocurre en la capa de Controlador (o una capa de adaptación), manteniendo limpio el dominio.
 
 ---
 
