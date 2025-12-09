@@ -7,18 +7,18 @@ Este documento analiza el diseño actual basado en Enums y métodos `default` en
 ## Tabla de Contenidos
 
 - [PARTE 1: Diseño Actual (Enum + Default Methods)](#parte-1-diseño-actual-enum--default-methods)
-  - [1.1. Arquitectura Actual](#11-arquitectura-actual)
-  - [1.2. Jerarquía de Interfaces del Repositorio](#12-jerarquía-de-interfaces-del-repositorio)
-  - [1.3. Flujo de Ejecución Actual](#13-flujo-de-ejecución-actual)
+  - [1.1. Arquitectura y Conceptos Clave](#11-arquitectura-y-conceptos-clave)
+  - [1.2. Implementación de la Jerarquía (El Problema)](#12-implementación-de-la-jerarquía-el-problema)
+  - [1.3. Diagrama de Flujo Unificado](#13-diagrama-de-flujo-unificado)
   - [1.4. Pros del Diseño Actual](#14-pros-del-diseño-actual)
   - [1.5. Contras del Diseño Actual](#15-contras-del-diseño-actual)
 - [PARTE 2: Propuesta con Strategy Pattern](#parte-2-propuesta-con-strategy-pattern)
   - [2.1. La Interfaz (El Contrato)](#21-la-interfaz-el-contrato)
   - [2.2. Las Estrategias Concretas](#22-las-estrategias-concretas)
   - [2.3. Estrategia de Migración Paso a Paso](#23-estrategia-de-migración-paso-a-paso)
-  - [2.4. Ejemplo Completo de Uso](#24-ejemplo-completo-de-uso)
-  - [2.5. Ejemplo de Test Unitario](#25-ejemplo-de-test-unitario)
-  - [2.6. Integración con APIs Legacy (create-type)](#26-integración-con-apis-legacy-create-type)
+  - [2.4. Integración con APIs Legacy (create-type)](#24-integración-con-apis-legacy-create-type)
+  - [2.5. Ejemplo Completo de Uso](#25-ejemplo-completo-de-uso)
+  - [2.6. Ejemplo de Test Unitario](#26-ejemplo-de-test-unitario)
 - [PARTE 3: Comparación de Ventajas](#parte-3-comparación-de-ventajas)
   - [3.1. Tabla Comparativa](#31-tabla-comparativa)
   - [3.2. Ventajas Específicas del Strategy Pattern](#32-ventajas-específicas-del-strategy-pattern)
@@ -38,11 +38,13 @@ Este documento analiza el diseño actual basado en Enums y métodos `default` en
 
 ## PARTE 1: Diseño Actual (Enum + Default Methods)
 
-### 1.1. Arquitectura Actual
+### 1.1. Arquitectura y Conceptos Clave
 
-El sistema actual usa el enum `TypeOfManagement` combinado con métodos `default` en interfaces de repositorio para gestionar duplicados.
+El sistema actual utiliza un **Anti-Patrón** donde la lógica de negocio (reglas de borrado) se mezcla con la capa de acceso a datos (Repositorios) controlada por un Enum.
 
-#### El Enum
+#### El Controlador: TypeOfManagement
+
+Todo comienza con este Enum que define "qué hacer" con los duplicados:
 
 ```java
 public enum TypeOfManagement {
@@ -53,7 +55,18 @@ public enum TypeOfManagement {
 }
 ```
 
-#### La Interfaz del Repositorio
+### 1.2. Implementación de la Jerarquía (El Problema)
+
+En lugar de usar clases separadas (Strategy Pattern), se implementaron interfaces de repositorio que heredan unas de otras. Esto causa problemas de **Excepciones en Runtime** porque no todas las interfaces soportan todas las estrategias.
+
+A continuación, analizamos los dos niveles principales de esta jerarquía:
+
+#### Nivel 1: La Interfaz Base (`JpaRepositoryWithTypeOfManagement`) -- Limitada
+
+Esta es la interfaz más común. Define el método principal `saveWithTypeOfManagement`.
+
+**Problema Crítico:** Esta interfaz **DESCONOCE** el campo `Origin`. Solo sabe de `Type` e `Id`.
+Por lo tanto, si intentas usar la estrategia `REMOVING_SAME_TYPE_AND_ORIGIN`, explota.
 
 ```java
 @NoRepositoryBean
@@ -64,27 +77,36 @@ public interface JpaRepositoryWithTypeOfManagement<T extends HasDeleted & HasTyp
     default T saveWithTypeOfManagement(T entity, Set<T> listEntities, TypeOfManagement typeOfManagement) {
         switch (typeOfManagement) {
             case REMOVING_SAME_TYPE_AND_ORIGIN:
+                // CRITICO:
+                // Al no tener acceso al campo 'origin', se ve forzada a lanzar una excepción en runtime.
                 throw new TypeOfManagementNotSupportedException(MANAGMENT_NOT_SUPPORTED_MESSAGE);
+                
             case REMOVING_SAME_TYPE:
                 return this.createRemovingSameType(entity, listEntities);
+                
             case REMOVING_REST:
                 return this.createRemovingRest(entity, listEntities);
+                
             default:
                 return save(entity);
         }
     }
-
+    
+    // Lógica para borrar por tipo e ID
     default T createRemovingSameType(T entity, Set<T> listEntities) {
-        listEntities.stream()
+         listEntities.stream()
             .filter(e -> e.getType().equals(entity.getType()) && !Objects.equals(e.getId(), entity.getId()))
-            .forEach(e -> {
-                e.setDeleted(true);
-                save(e);
-            });
+            .forEach(e -> { e.setDeleted(true); save(e); });
         return save(entity);
     }
 }
 ```
+
+#### Nivel 2: La Interfaz Extendida (`JpaRepositoryWithTypeAndOriginManagement`) -- Completa
+
+Para solucionar la limitación anterior, se creó esta interfaz hija que añade el requisito `HasOrigin`.
+
+**Solución Parcial:** Sobreescribe el método anterior para interceptar el caso problemático.
 
 #### Diagrama de Flujo del Método `saveWithTypeOfManagement`
 
@@ -148,10 +170,6 @@ public interface JpaRepositoryWithTypeOfManagement<T extends HasDeleted & HasTyp
 }
 ```
 
-#### Nivel 2: JpaRepositoryWithTypeAndOriginManagement (Extensión)
-
-Esta interfaz extiende a la anterior y añade soporte para entidades que tienen `Origin` (implementan `HasOrigin`).
-
 ```java
 @NoRepositoryBean
 public interface JpaRepositoryWithTypeAndOriginManagement<T extends HasDeleted & HasType & HasId & HasOrigin, ID> 
@@ -161,38 +179,27 @@ public interface JpaRepositoryWithTypeAndOriginManagement<T extends HasDeleted &
     default T saveWithTypeOfManagement(T entity, Set<T> listEntities, TypeOfManagement typeOfManagement) {
         switch (typeOfManagement) {
             case REMOVING_SAME_TYPE_AND_ORIGIN:
-                // AHORA SÍ: Esta interfaz conoce "Origin" y puede ejecutar la lógica correcta.
+                // CORRECTO: Conoce el campo 'origin' y puede ejecutar la lógica correcta.
                 return this.createRemovingSameTypeAndOrigin(entity, listEntities);
                 
-            // Los demás casos delegan a la implementación del padre (super) o se repiten
-            case REMOVING_SAME_TYPE:
-                return this.createRemovingSameType(entity, listEntities);
-            // ...
+            default:
+                // Para el resto, delega al padre (super) para no repetir código
+                return super.saveWithTypeOfManagement(entity, listEntities, typeOfManagement);
         }
     }
 
+    // Lógica específica que SÍ usa getOrigin()
     default T createRemovingSameTypeAndOrigin(T newEntity, Set<T> listEntitiesSaved) {
         listEntitiesSaved.stream()
                 .filter(entitySaved -> 
-                       entitySaved.getOrigin().equals(newEntity.getOrigin()) && // Filtra por Origen
+                       entitySaved.getOrigin().equals(newEntity.getOrigin()) && 
                        entitySaved.getType().equals(newEntity.getType()) && 
                        !Objects.equals(entitySaved.getId(), newEntity.getId()))
-                .forEach(e -> {
-                    e.setDeleted(true);
-                    save(e);
-                });
+                .forEach(e -> { entitySaved.setDeleted(true); save(entitySaved); });
         return save(newEntity);
     }
 }
 ```
-
-#### ¿Por qué se lanza `TypeOfManagementNotSupportedException`?
-
-La excepción ocurre cuando intentas usar la estrategia `REMOVING_SAME_TYPE_AND_ORIGIN` en un repositorio que **solo implementa el Nivel 1**.
-
-Como esa interfaz base solo garantiza que la entidad tenga `Type` e `Id`, pero no `Origin`, físicamente **no puede compilar ni ejecutar** un filtro por origen (`e.getOrigin()`). La excepción es una validación en tiempo de ejecución (Runtime Check) para prevenir un uso incorrecto de la jerarquía.
-
----
 
 ### 1.3. Diagrama de la Jerarquía Completa
 
@@ -236,34 +243,26 @@ classDiagram
 
 #### Explicación de la Jerarquía
 
-**Nivel 1: JpaRepository (Spring Data JPA)**
+##### Nivel 1: JpaRepository (Spring Data JPA)
 
 - Interfaz estándar de Spring que proporciona operaciones CRUD básicas
 - Todos los repositorios del sistema heredan de aquí
 
-**Nivel 2: JpaRepositoryPeople**
+##### Nivel 2: JpaRepositoryPeople
 
 - Primera capa de personalización específica del dominio
 - Agrega consultas para filtrar por `personId` (todas las entidades pertenecen a una persona)
 - Marcada con `@NoRepositoryBean` para que Spring no intente crear una implementación
 
-**Nivel 3: JpaRepositoryWithTypeOfManagementStrategy**
+##### Nivel 3: JpaRepositoryWithTypeOfManagementStrategy
 
-- Define el **contrato** del método `saveWithTypeOfManagement()` (abstracto)
-- Implementa la estrategia `REMOVING_REST` como método `default`
-- Requiere que las entidades tengan `id` y `deleted`
+#### ¿Por qué se lanza `TypeOfManagementNotSupportedException`?
 
-**Nivel 4: JpaRepositoryWithTypeOfManagement**
+La excepción ocurre cuando intentas usar la estrategia `REMOVING_SAME_TYPE_AND_ORIGIN` en un repositorio que **solo implementa el Nivel 1**.
 
-- Implementa el método abstracto con el `switch` que decide qué estrategia aplicar
-- Agrega la estrategia `REMOVING_SAME_TYPE` como método `default`
-- Requiere que las entidades tengan `id`, `type` y `deleted`
+Como esa interfaz base solo garantiza que la entidad tenga `Type` e `Id`, pero no `Origin`, físicamente **no puede compilar ni ejecutar** un filtro por origen (`e.getOrigin()`). La excepción es una validación en tiempo de ejecución (Runtime Check) para prevenir un uso incorrecto de la jerarquía.
 
-**Nivel 5: Repositorios Concretos**
-
-- Spring Data JPA crea automáticamente las implementaciones
-- Heredan **todos** los métodos de la jerarquía completa
-- Pueden agregar métodos adicionales específicos (ej: `findByTypeAndNumberAndDeleted`)
+---
 
 #### Métodos Heredados por los Repositorios Concretos
 
@@ -756,7 +755,91 @@ public interface ContactsRepository extends JpaRepository<ContactsEntity, Long> 
 
 ---
 
-### 2.4. Ejemplo Completo de Uso
+### 2.4. Integración con APIs Legacy (create-type)
+
+Un requisito común en este proyecto es mantener la retrocompatibilidad con clientes existentes que envían la estrategia como un parámetro de consulta (query param), por ejemplo:
+
+`POST /v2/people/123/certifications?create-type=REMOVING_SAME_TYPE`
+
+Para soportar este escenario dinámico donde la estrategia no se conoce hasta el tiempo de ejecución (runtime), reintroducir el uso de una **Factory** o **Resolver** es la solución ideal.
+
+#### 2.4.1. La Fábrica (Strategy Factory)
+
+Esta clase mapea el identificador antiguo (Enum) a la nueva implementación de estrategia.
+
+```java
+@Component
+public class ManagementStrategyFactory {
+    
+    // Inyectamos todas las estrategias viables
+    // Spring mapea automáticamente los beans que implementan la interfaz en un Map si usamos los nombres de los beans
+    // O podemos construirlos manualmente para mayor control:
+    
+    private final Map<TypeOfManagement, ManagementStrategy> strategyMap;
+
+    public ManagementStrategyFactory(
+            NewStrategy newStrategy,
+            NewAndReplaceStrategy newAndReplaceStrategy,
+            NewAndReplaceByOriginStrategy newAndReplaceByOriginStrategy) {
+            
+        this.strategyMap = Map.of(
+            TypeOfManagement.ONLY, newStrategy,
+            TypeOfManagement.REMOVING_SAME_TYPE, newAndReplaceStrategy,
+            TypeOfManagement.REMOVING_SAME_TYPE_AND_ORIGIN, newAndReplaceByOriginStrategy,
+            // Mapeo legacy para fallback:
+            TypeOfManagement.REMOVING_REST, newStrategy // O la implementación específica si existe
+        );
+    }
+
+    public <T extends HasType & HasId> ManagementStrategy<T> resolve(TypeOfManagement type) {
+        return strategyMap.getOrDefault(type, strategyMap.get(TypeOfManagement.ONLY));
+    }
+}
+```
+
+#### 2.4.2. Implementación en el Controller
+
+El controlador recibe el Enum antiguo y utiliza la Factory para obtener la lógica correcta.
+
+```java
+@RestController
+@RequestMapping("/v2/people")
+public class CertificationsController {
+
+    @Autowired
+    private CertificationService certificationService;
+    
+    // Inyectamos la Factory
+    @Autowired
+    private ManagementStrategyFactory strategyFactory; 
+
+    @PostMapping("/{personId}/certifications")
+    public ResponseEntity<Long> createCertification(
+            @PathVariable Long personId,
+            @RequestParam(name = "create-type", defaultValue = "ONLY") TypeOfManagement createType,
+            @RequestBody CertificationRequest request) {
+        
+        // 1. Resolvemos la estrategia basada en el parámetro URL
+        ManagementStrategy<CertificationEntity> strategy = strategyFactory.resolve(createType);
+        
+        // 2. Pasamos la estrategia resuelta al servicio
+        // NOTA: El servicio debe actualizarse para aceptar 'ManagementStrategy' en lugar de 'TypeOfManagement'
+        Long id = certificationService.create(personId, request, strategy);
+        
+        return ResponseEntity.status(HttpStatus.CREATED).body(id);
+    }
+}
+```
+
+**Beneficios de este enfoque híbrido:**
+
+1. **Retrocompatibilidad Total**: La API externa no cambia.
+2. **Core Moderno**: El servicio y el dominio usan el nuevo patrón Strategy.
+3. **Adaptación en la Frontera**: La conversión de Enum -> Strategy ocurre en la capa de Controlador (o una capa de adaptación), manteniendo limpio el dominio.
+
+---
+
+### 2.5. Ejemplo Completo de Uso
 
 Vamos a ver el flujo completo de ejecución con un ejemplo real: **Agregar un nuevo email a Juan**.
 
@@ -884,7 +967,7 @@ public class NewAndReplaceStrategy<T extends HasDeleted & HasType & HasId> {
 3. **Testabilidad:**
    - Se Puede probar `NewAndReplaceStrategy` sin Spring, sin BD, solo con objetos en memoria
 
-### 2.5. Ejemplo de Test Unitario
+### 2.6. Ejemplo de Test Unitario
 
 Una gran ventaja es poder probar la lógica sin base de datos.
 
@@ -914,88 +997,6 @@ class NewAndReplaceStrategyTest {
 ```
 
 ---
-
-### 2.6. Integración con APIs Legacy (create-type)
-
-Un requisito común en este proyecto es mantener la retrocompatibilidad con clientes existentes que envían la estrategia como un parámetro de consulta (query param), por ejemplo:
-
-`POST /v2/people/123/certifications?create-type=REMOVING_SAME_TYPE`
-
-Para soportar este escenario dinámico donde la estrategia no se conoce hasta el tiempo de ejecución (runtime), reintroducir el uso de una **Factory** o **Resolver** es la solución ideal.
-
-#### 2.6.1. La Fábrica (Strategy Factory)
-
-Esta clase mapea el identificador antiguo (Enum) a la nueva implementación de estrategia.
-
-```java
-@Component
-public class ManagementStrategyFactory {
-    
-    // Inyectamos todas las estrategias viables
-    // Spring mapea automáticamente los beans que implementan la interfaz en un Map si usamos los nombres de los beans
-    // O podemos construirlos manualmente para mayor control:
-    
-    private final Map<TypeOfManagement, ManagementStrategy> strategyMap;
-
-    public ManagementStrategyFactory(
-            NewStrategy newStrategy,
-            NewAndReplaceStrategy newAndReplaceStrategy,
-            NewAndReplaceByOriginStrategy newAndReplaceByOriginStrategy) {
-            
-        this.strategyMap = Map.of(
-            TypeOfManagement.ONLY, newStrategy,
-            TypeOfManagement.REMOVING_SAME_TYPE, newAndReplaceStrategy,
-            TypeOfManagement.REMOVING_SAME_TYPE_AND_ORIGIN, newAndReplaceByOriginStrategy,
-            // Mapeo legacy para fallback:
-            TypeOfManagement.REMOVING_REST, newStrategy // O la implementación específica si existe
-        );
-    }
-
-    public <T extends HasType & HasId> ManagementStrategy<T> resolve(TypeOfManagement type) {
-        return strategyMap.getOrDefault(type, strategyMap.get(TypeOfManagement.ONLY));
-    }
-}
-```
-
-#### 2.6.2. Implementación en el Controller
-
-El controlador recibe el Enum antiguo y utiliza la Factory para obtener la lógica correcta.
-
-```java
-@RestController
-@RequestMapping("/v2/people")
-public class CertificationsController {
-
-    @Autowired
-    private CertificationService certificationService;
-    
-    // Inyectamos la Factory
-    @Autowired
-    private ManagementStrategyFactory strategyFactory; 
-
-    @PostMapping("/{personId}/certifications")
-    public ResponseEntity<Long> createCertification(
-            @PathVariable Long personId,
-            @RequestParam(name = "create-type", defaultValue = "ONLY") TypeOfManagement createType,
-            @RequestBody CertificationRequest request) {
-        
-        // 1. Resolvemos la estrategia basada en el parámetro URL
-        ManagementStrategy<CertificationEntity> strategy = strategyFactory.resolve(createType);
-        
-        // 2. Pasamos la estrategia resuelta al servicio
-        // NOTA: El servicio debe actualizarse para aceptar 'ManagementStrategy' en lugar de 'TypeOfManagement'
-        Long id = certificationService.create(personId, request, strategy);
-        
-        return ResponseEntity.status(HttpStatus.CREATED).body(id);
-    }
-}
-```
-
-**Beneficios de este enfoque híbrido:**
-
-1. **Retrocompatibilidad Total**: La API externa no cambia.
-2. **Core Moderno**: El servicio y el dominio usan el nuevo patrón Strategy.
-3. **Adaptación en la Frontera**: La conversión de Enum -> Strategy ocurre en la capa de Controlador (o una capa de adaptación), manteniendo limpio el dominio.
 
 ---
 
@@ -1281,7 +1282,7 @@ public class ContactsServiceImpl {
 
 **Para Proyectos Nuevos:**
 
-✅ **Usa Inyección Directa (A.1)** exclusivamente
+- **Usa Inyección Directa (A.1)** exclusivamente
 
 - Es el enfoque más simple y moderno
 - No se necesita Factory ni enum
