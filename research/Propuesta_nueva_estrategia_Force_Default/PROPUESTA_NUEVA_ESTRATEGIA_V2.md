@@ -91,10 +91,16 @@ graph TD
         M --> K
     end
 
-    style C fill:#f9f,stroke:#333,stroke-width:2px,color:black
     style F fill:#f9f,stroke:#333,stroke-width:2px,color:black
     style G fill:#bbf,stroke:#333,stroke-width:2px,color:black
 ```
+
+**Explicación del Flujo:**
+
+1. **El Servicio (Rosa)**: Actúa como configurador. Su única responsabilidad es decir "Para mí, un duplicado es X" (caja rosa `Definir Regla`).
+2. **La Estrategia (Azul)**: Es el motor. Recibe la regla y la aplica ciegamente.
+3. **El Resultado**: Los datos se guardan, o el usuario recibe un error limpio.
+4. **Éxito en DEFAULT**: Importante es observar que si el detector devuelve "NO" para todos los registros, el flujo llega a "Guardar Nuevo Registro". **`DEFAULT` guarda exitosamente siempre que no haya colisiones.**
 
 ### 2.2. Visión Estructural (Diagrama de Clases)
 
@@ -253,7 +259,7 @@ Una gran ventaja de este diseño es que **NO requiere modificar la base de datos
 1. **`HasId`**: Para reportar el ID en logs y excepciones.
 2. **`HasDeleted`**: Para permitir el "Soft Delete" en la estrategia `FORCE`.
 
-*Nota: LA mayoria de las entidades actuales presentes en el proyecto, ya implementan estas interfaces, por lo que la integración es inmediata.*
+*Nota: Entidades actuales como `ContactsEntity` ya implementan estas interfaces, por lo que la integración es inmediata.*
 
 ### 4.4. Capa de Datos (Repositorios Estándar)
 
@@ -331,7 +337,7 @@ public class ForcePersistenceStrategy<T extends HasDeleted & HasId> implements P
 
 ---
 
-## 6. Reglas de Negocio.
+## 6. Reglas de Negocio (El Combustible)
 
 Aquí es donde reside la flexibilidad del sistema. Definimos los criterios de duplicidad mediante `CollisionDetectors` específicos.
 
