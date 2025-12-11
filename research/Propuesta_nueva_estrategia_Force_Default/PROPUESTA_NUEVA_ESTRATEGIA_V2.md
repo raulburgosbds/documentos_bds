@@ -34,7 +34,7 @@
 
 ---
 
-## 1. Resumen Ejecutivo
+## 1. Resumen Ejecutivo.
 
 ### Problemática Actual
 
@@ -337,7 +337,7 @@ public class ForcePersistenceStrategy<T extends HasDeleted & HasId> implements P
 
 ---
 
-## 6. Reglas de Negocio (El Combustible)
+## 6. Reglas de Negocio.
 
 Aquí es donde reside la flexibilidad del sistema. Definimos los criterios de duplicidad mediante `CollisionDetectors` específicos.
 
