@@ -337,7 +337,7 @@ public class ForcePersistenceStrategy<T extends HasDeletedAt & HasId> implements
 
 ---
 
-## 6. Reglas de Negocio (El Combustible)
+## 6. Reglas de Negocio (Collision Detectors)
 
 Aquí es donde reside la flexibilidad del sistema. Definimos los criterios de duplicidad mediante `CollisionDetectors` específicos.
 
