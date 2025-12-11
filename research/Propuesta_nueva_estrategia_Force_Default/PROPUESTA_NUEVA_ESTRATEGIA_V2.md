@@ -1,5 +1,39 @@
 # Propuesta de Diseño Técnico: Estrategia de Persistencia Flexible por Conflictos
 
+## Tabla de Contenidos
+
+1. [Resumen Ejecutivo](#1-resumen-ejecutivo)
+2. [Arquitectura Visual y Flujos](#2-arquitectura-visual-y-flujos)
+    * [2.1. Visión Funcional](#21-visión-funcional-diagrama-de-flujo)
+    * [2.2. Visión Estructural](#22-visión-estructural-diagrama-de-clases)
+    * [2.3. Visión de Interacción](#23-visión-de-interacción-diagrama-de-secuencia)
+3. [Justificación Arquitectónica](#3-justificación-arquitectónica-por-qué-abstraer)
+    * [3.1. El problema del enfoque manual](#31-el-problema-del-enfoque-manual-código-espagueti)
+    * [3.2. La Solución Técnica](#32-la-solución-técnica-estrategia-de-persistencia-centralizada)
+4. [Interfaces de Abstracción](#4-interfaces-de-abstracción)
+    * [4.1. Detector de Colisiones](#41-detector-de-colisiones-el-criterio)
+    * [4.2. La Estrategia de Persistencia](#42-la-estrategia-de-persistencia-la-acción)
+    * [4.3. Requisitos de Datos](#43-requisitos-de-datos-contractos)
+    * [4.4. Capa de Datos](#44-capa-de-datos-repositorios-estándar)
+5. [Implementación de las Estrategias](#5-implementación-de-las-estrategias-motor)
+    * [5.1. DefaultPersistenceStrategy](#51-defaultpersistencestrategy-validación-estricta)
+    * [5.2. ForcePersistenceStrategy](#52-forcepersistencestrategy-sobreescritura)
+6. [Reglas de Negocio](#6-reglas-de-negocio-el-combustible)
+    * [6.1. Escenario de Cambio](#61-escenario-de-cambio-evolución-del-negocio)
+    * [6.2. Extensibilidad Real](#62-extensibilidad-real-agregando-una-nueva-entidad-ej-cuentas-bancarias)
+    * [6.3. Convivencia con Lógica Adicional](#63-convivencia-con-lógica-de-negocio-adicional)
+    * [6.4. Helper Común: Fechas](#64-helper-común-fechas)
+    * [6.5. Reglas Actuales por Entidad](#65-reglas-actuales-por-entidad)
+7. [Capa de Entrada: Controller](#7-capa-de-entrada-el-controller)
+    * [7.1. Ejemplos de Invocación](#71-ejemplos-de-invocación)
+8. [Receta Completa: Integración](#8-receta-completa-ejemplo-de-integración-servicio)
+9. [Observabilidad y Errores](#9-observabilidad-y-manejo-de-errores)
+    * [9.1. Excepciones Ricas](#91-excepciones-ricas-metadatos-de-conflicto)
+    * [9.2. Logging Estructurado](#92-logging-estructurado)
+10. [Plan de Acción](#10-plan-de-acción-siguientes-pasos)
+
+---
+
 ## 1. Resumen Ejecutivo
 
 ### Problemática Actual
@@ -62,13 +96,7 @@ graph TD
     style G fill:#bbf,stroke:#333,stroke-width:2px,color:black
 ```
 
-**Explicación del Diagrama:**
-
-1. **El Servicio (Rosa)**: Actúa como configurador. Su única responsabilidad es decir "Para mí, un duplicado es X" (caja rosa `Definir Regla`).
-2. **La Estrategia (Azul)**: Es el motor. Recibe la regla y la aplica ciegamente. No sabe de qué entidad se trata, solo sabe que si el detector dice "SÍ", debe actuar según su naturaleza (Romper o Sobreescribir).
-3. **El Resultado**: O los datos se guardan, o el usuario recibe un error limpio.
-
-### 1.2. Visión Estructural (Diagrama de Clases)
+### 2.2. Visión Estructural (Diagrama de Clases)
 
 Este diagrama muestra cómo se desacoplan las piezas. Nota cómo el `CertificationService` depende de la interfaz `PersistenceStrategy` y define dinámicamente el `CollisionDetector`.
 
@@ -109,7 +137,7 @@ classDiagram
     CertificationService ..> CollisionDetector : Defines (Lambda)
 ```
 
-### 1.3. Visión de Interacción (Diagrama de Secuencia)
+### 2.3. Visión de Interacción (Diagrama de Secuencia)
 
 Este diagrama es crítico para entender el ciclo de vida de una petición (ej: caso **FORCE** con conflicto). Muestra claramente la delegación de responsabilidades en tiempo de ejecución.
 
@@ -150,11 +178,11 @@ sequenceDiagram
 
 ---
 
-## 2. Justificación Arquitectónica: ¿Por qué abstraer?
+## 3. Justificación Arquitectónica: ¿Por qué abstraer?
 
 Es natural preguntarse si no es más fácil escribir la validación `if/else` directamente en cada `Service`. A continuación justificamos por qué la abstracción (Strategy Pattern) es superior para este caso de uso con múltiples entidades.
 
-### 2.1. El problema del enfoque manual ("Código Espagueti")
+### 3.1. El problema del enfoque manual ("Código Espagueti")
 
 Si implementáramos la lógica manualmente en cada servicio, estaríamos duplicando la estructura de control múltiples veces:
 
@@ -180,7 +208,7 @@ if (type.equals("DEFAULT")) {
 2. **Inconsistencia**: Riesgo de que un desarrollador use `409 Conflict` y otro `400 BadRequest`.
 3. **Baja Legibilidad**: El servicio se llena de ruido, ocultando la verdadera regla de negocio importante (la comparación de fechas/códigos).
 
-### 2.2. La Solución Técnica: Estrategia de Persistencia Centralizada
+### 3.2. La Solución Técnica: Estrategia de Persistencia Centralizada
 
 Separamos las responsabilidades en dos componentes claros, aplicando el patrón de diseño **Strategy**:
 
@@ -189,11 +217,11 @@ Separamos las responsabilidades en dos componentes claros, aplicando el patrón 
 
 ---
 
-## 3. Interfaces de Abstracción
+## 4. Interfaces de Abstracción
 
 Definimos dos interfaces que interactúan entre sí.
 
-### 3.1. Detector de Colisiones (El Criterio)
+### 4.1. Detector de Colisiones (El Criterio)
 
 Lambdas que definen la identidad única de cada entidad.
 
@@ -208,34 +236,44 @@ public interface CollisionDetector<T> {
 }
 ```
 
-### 3.2. La Estrategia de Persistencia (La Acción)
+### 4.2. La Estrategia de Persistencia (La Acción)
 
 Clases genéricas que ejecutan la lógica de guardado.
 
 ```java
 public interface PersistenceStrategy<T extends HasDeleted & HasId> {
-    /**
-     */
     Long apply(T newEntity, Collection<T> storedEntities, Consumer<T> saver, CollisionDetector<T> detector);
 }
 ```
 
-### 3.3. Requisitos de Datos (Contractos)
+### 4.3. Requisitos de Datos (Contractos)
 
 Una gran ventaja de este diseño es que **NO requiere modificar la base de datos ni las entidades existentes**. Para que una entidad pueda usar estas estrategias, solo debe implementar dos interfaces simples que ya son estándar en el proyecto:
 
 1. **`HasId`**: Para reportar el ID en logs y excepciones.
 2. **`HasDeleted`**: Para permitir el "Soft Delete" en la estrategia `FORCE`.
 
-*Nota: Entidades actuales como `ContactsEntity` ya implementan estas interfaces, por lo que la integración es inmediata.*
+*Nota: LA mayoria de las entidades actuales presentes en el proyecto, ya implementan estas interfaces, por lo que la integración es inmediata.*
+
+### 4.4. Capa de Datos (Repositorios Estándar)
+
+A diferencia del modelo legacy (`TypeOfManagement`) que obligaba a heredar de interfaces complejas, esta estrategia **utiliza Repositorios JPA estándar**.
+
+```java
+// Repositorio limpio y estándar
+@Repository
+public interface CertificationRepository extends JpaRepository<CertificationEntity, Long> {
+    Set<CertificationEntity> findByPersonId(Long personId);
+}
+```
 
 ---
 
-## 4. Implementación de las Estrategias (Motor)
+## 5. Implementación de las Estrategias (Motor)
 
 Estas clases se escriben **una sola vez** y sirven para TODAS las entidades.
 
-### 4.1. DefaultPersistenceStrategy (Validación Estricta)
+### 5.1. DefaultPersistenceStrategy (Validación Estricta)
 
 *Comportamiento: "Si ya existe, lanza error".*
 
@@ -246,7 +284,6 @@ public class DefaultPersistenceStrategy<T extends HasDeleted & HasId> implements
 
     @Override
     public Long apply(T newEntity, Collection<T> storedEntities, Consumer<T> saver, CollisionDetector<T> detector) {
-        // 1. Buscamos conflictos activos
         Optional<T> conflict = storedEntities.stream()
             .filter(e -> !e.isDeleted()) 
             .filter(e -> detector.isConflict(newEntity, e))
@@ -255,11 +292,9 @@ public class DefaultPersistenceStrategy<T extends HasDeleted & HasId> implements
         if (conflict.isPresent()) {
             Long conflictId = conflict.get().getId();
             log.warn("[DEFAULT-STRATEGY] Conflicto detectado. No se puede guardar la nueva entidad porque choca con ID: {}", conflictId);
-            // Lanzamos la excepción enriquecida con el ID del conflicto
             throw new EntityConflictException("La entidad entra en conflicto con un registro existente.", conflictId);
         }
 
-        // 2. Si no hay conflicto, guardamos
         saver.accept(newEntity);
         log.debug("[DEFAULT-STRATEGY] Entidad guardada exitosamente. ID: {}", newEntity.getId());
         return newEntity.getId();
@@ -267,7 +302,7 @@ public class DefaultPersistenceStrategy<T extends HasDeleted & HasId> implements
 }
 ```
 
-### 4.2. ForcePersistenceStrategy (Sobreescritura)
+### 5.2. ForcePersistenceStrategy (Sobreescritura)
 
 *Comportamiento: "Si ya existe, bórralo y guarda el nuevo".*
 
@@ -278,18 +313,15 @@ public class ForcePersistenceStrategy<T extends HasDeleted & HasId> implements P
 
     @Override
     public Long apply(T newEntity, Collection<T> storedEntities, Consumer<T> saver, CollisionDetector<T> detector) {
-        // 1. Buscamos TODOS los conflictos activos
         storedEntities.stream()
             .filter(e -> !e.isDeleted())
             .filter(e -> detector.isConflict(newEntity, e))
             .forEach(conflictEntity -> {
-                // 2. Borrado Lógico (Soft Delete)
                 log.info("[FORCE-STRATEGY] Colisión detectada. Realizando Soft-Delete a entidad existente [ID: {}] para permitir la nueva inserción.", conflictEntity.getId());
                 conflictEntity.setDeleted(true); 
                 saver.accept(conflictEntity);
             });
 
-        // 3. Guardamos siempre el nuevo
         saver.accept(newEntity);
         log.debug("[FORCE-STRATEGY] Nueva entidad guardada exitosamente. ID: {}", newEntity.getId());
         return newEntity.getId();
@@ -299,11 +331,11 @@ public class ForcePersistenceStrategy<T extends HasDeleted & HasId> implements P
 
 ---
 
-## 5. Reglas de Negocio (El Combustible)
+## 6. Reglas de Negocio.
 
 Aquí es donde reside la flexibilidad del sistema. Definimos los criterios de duplicidad mediante `CollisionDetectors` específicos.
 
-### 5.1. Escenario de Cambio (Evolución del Negocio)
+### 6.1. Escenario de Cambio (Evolución del Negocio)
 
 Una de las grandes fortalezas de este diseño es su **adaptabilidad**. Imaginemos que hoy la regla de Certificación solo valida el Código y la Fecha.
 
@@ -320,47 +352,40 @@ Si mañana surge el requerimiento de validar también el **Origen**, **el cambio
 // REGLA MAÑANA: Código + Fechas + Origen
 CollisionDetector<Certification> rules = (nuevo, viejo) -> 
     nuevo.getCode().equals(viejo.getCode()) && 
-    nuevo.getOrigin().equals(viejo.getOrigin()) &&  // <--- Solo modificamos una línea aquí
+    nuevo.getOrigin().equals(viejo.getOrigin()) && 
     fechasSeSolapan(nuevo, viejo);
 ```
 
 **Resultado**: Se modificó el criterio de negocio sin riesgo de romper la lógica de borrado o error que reside en las estrategias.
 
-### 5.2. Extensibilidad Real: Agregando una Nueva Entidad (Ej: Cuentas Bancarias)
+### 6.2. Extensibilidad Real: Agregando una Nueva Entidad (Ej: Cuentas Bancarias)
 
-Supongamos que en 3 meses se requiere agregar el servicio de **Cuentas Bancarias**. Gracias a esta arquitectura, **NO es necesario escribir lógica de persistencia nueva**. Solo se configura la regla de identidad.
+Supongamos que en 3 meses se requiere agregar el servicio de **Cuentas Bancarias**. **NO es necesario escribir lógica de persistencia nueva**. Solo se configura la regla de identidad.
 
-**Paso 1: Entidad nueva**
-`BankAccount` (tiene `cbu`, `bankId`, `currency`).
+**Paso 1: Entidad nueva** (`BankAccount`: cbu, bankId, currency).
 
 **Paso 2: Servicio nuevo (`BankAccountService`)**
-Simplemente inyectamos las estrategias existentes y definimos la lambda de colisión.
 
 ```java
 @Service
 public class BankAccountService {
-    // Inyectamos las mismas estrategias que usa Certifications
     @Autowired PersistenceStrategy<BankAccount> strategy; 
 
     public void addAccount(BankAccount account, String type) {
-        // DEFINIMOS LA ÚNICA LÓGICA NECESARIA: ¿Qué es una cuenta duplicada?
         // Regla: "Mismo CBU"
         CollisionDetector<BankAccount> rule = (newAcc, oldAcc) -> 
             newAcc.getCbu().equals(oldAcc.getCbu());
 
-        // REUTILIZAMOS EL MOTOR
         strategy.apply(account, existing, repo::save, rule);
     }
 }
 ```
 
-**Resultado**: En 5 minutos tienes un servicio robusto con soporte para `FORCE` (borrado lógico de CBU duplicado) y `DEFAULT` (error si CBU ya existe), sin haber escrito ni testeado bucles `if/else`.
+**Resultado**: En 5 minutos tienes un servicio robusto, sin haber escrito ni testeado bucles `if/else`.
 
-### 5.3. Convivencia con Lógica de Negocio Adicional
+### 6.3. Convivencia con Lógica de Negocio Adicional
 
-Es importante notar que la Estrategia **SOLO** maneja la decisión de persistencia (guardar/borrar). Cualquier otra validación de negocio (ej: consultar APIs externas, validaciones de formato) sigue viviendo en el **Servicio**.
-
-*Ejemplo: Validar CBU en API externa antes de guardar.*
+La Estrategia **SOLO** maneja la decisión de persistencia. Cualquier otra validación sigue viviendo en el **Servicio**.
 
 ```java
 public void addAccount(BankAccount account) {
@@ -377,7 +402,7 @@ public void addAccount(BankAccount account) {
 }
 ```
 
-### 5.4. Helper Común: Fechas
+### 6.4. Helper Común: Fechas
 
 ```java
 public class DateRangeValidator {
@@ -390,7 +415,7 @@ public class DateRangeValidator {
 }
 ```
 
-### 5.3. Reglas Actuales por Entidad
+### 6.5. Reglas Actuales por Entidad
 
 #### A. Certificaciones (`/certifications`)
 
@@ -425,9 +450,54 @@ CollisionDetector<TaxableActivityEntity> activityRules = (nuevo, existente) -> {
 
 ---
 
-## 6. Unificándolo Todo: Ejemplo de Integración
+## 7. Capa de Entrada: El Controller
 
-Así de limpio queda el servicio final. Toda la complejidad desaparece.
+Es fundamental definir cómo el consumidor de la API selecciona la estrategia.
+
+* **Parámetro**: `create-type`
+* **Valor por defecto**: `DEFAULT`
+
+```java
+@RestController
+@RequestMapping("/v1/people/{personId}/certifications")
+public class CertificationController {
+
+    @Autowired
+    private CertificationService service;
+
+    @PostMapping
+    public ResponseEntity<Long> create(
+            @PathVariable Long personId,
+            @RequestBody @Valid CertificationDTO dto,
+            @RequestParam(name = "create-type", defaultValue = "DEFAULT") String createType
+    ) {
+        Long newId = service.create(personId, dto, createType);
+        return ResponseEntity.status(HttpStatus.CREATED).body(newId);
+    }
+}
+```
+
+### 7.1. Ejemplos de Invocación
+
+**Caso A: Creación Estándar (Usa DEFAULT)**
+
+```bash
+POST /v1/people/123/certifications
+# Si hay conflicto -> Retorna Error (409 Conflict)
+```
+
+**Caso B: Creación Forzada (Usa FORCE)**
+
+```bash
+POST /v1/people/123/certifications?create-type=FORCE
+# Si hay conflicto -> Borra el anterior y crea el nuevo (201 Created)
+```
+
+---
+
+## 8. Receta Completa: Ejemplo de Integración (Servicio)
+
+Así de limpio queda el servicio final:
 
 ```java
 @Service
@@ -449,12 +519,12 @@ public class CertificationService {
         PersistenceStrategy<CertificationEntity> strategy = 
             "FORCE".equalsIgnoreCase(createType) ? forceStrategy : defaultStrategy;
 
-        // 2. Definición de la Regla (Legible y adaptable)
+        // 2. Definición de la Regla
         CollisionDetector<CertificationEntity> rules = (newCert, oldCert) -> 
             newCert.getCertificationCode().equals(oldCert.getCertificationCode()) &&
             DateRangeValidator.overlaps(newCert.getStart(), newCert.getEnd(), oldCert.getStart(), oldCert.getEnd());
 
-        // 3. Ejecución (El "Cómo" está delegado)
+        // 3. Ejecución
         return strategy.apply(entity, existing, repository::save, rules);
     }
 }
@@ -462,37 +532,26 @@ public class CertificationService {
 
 ---
 
-## 7. Observabilidad y Manejo de Errores
+## 9. Observabilidad y Manejo de Errores
 
-Para garantizar la mantenibilidad y facilitar el debugging en producción, se incorporan mecanismos de feedback detallado.
-
-### 7.1. Excepciones Ricas (Metadatos de Conflicto)
-
-En lugar de un error genérico, `EntityConflictException` transportará datos sobre *qué* causó el choque.
+### 9.1. Excepciones Ricas (Metadatos de Conflicto)
 
 ```java
 public class EntityConflictException extends RuntimeException {
     private final Long conflictingEntityId;
     
-    public EntityConflictException(String message, Long conflictingId) {
-        super(message);
-        this.conflictingEntityId = conflictingId;
-    }
-}
+    public EntityConflictException(String message, Long conflictingId) { // ...
 ```
 
-### 7.2. Logging Estructurado
-
-Dado que las estrategias son genéricas, es crítico que dejen auditoría de sus acciones.
+### 9.2. Logging Estructurado
 
 ```java
-// Ejemplo dentro de ForcePersistenceStrategy
-log.info("[FORCE-STRATEGY] Colisión detectada. Soft-Delete a entidad [ID: {}] por nueva inserción.", conflictEntity.getId());
+log.info("[FORCE-STRATEGY] Colisión detectada. Soft-Delete a entidad [ID: {}] ...", conflictEntity.getId());
 ```
 
 ---
 
-## 8. Plan de Acción (Siguientes Pasos)
+## 10. Plan de Acción (Siguientes Pasos)
 
 1. Crear excepción `EntityConflictException`.
 2. Crear paquete `ar.com.bds.people.center.strategy.persistence`.
