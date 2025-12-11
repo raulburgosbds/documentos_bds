@@ -34,7 +34,7 @@
 
 ---
 
-## 1. Resumen Ejecutivo.
+## 1. Resumen Ejecutivo
 
 ### Problemática Actual
 
@@ -46,7 +46,7 @@ Se propone arquitecturar una solución basada en el **Patrón Strategy**, desaco
 
 1. **Motor de Estrategia (La Acción)**: Un componente centralizado y genérico encargado de ejecutar la lógica de persistencia.
     * **Estrategia `DEFAULT`**: Garantiza la integridad de datos mediante validación estricta (falla si existe duplicado).
-    * **Estrategia `FORCE`**: Garantiza la precedencia del nuevo dato, aplicando un borrado lógico (*soft-delete*) sobre los registros conflictivos previos.
+    * **Estrategia `FORCE`**: Garantiza la precedencia del nuevo dato, aplicando un borrado lógico (*soft-delete* estableciendo `deleted_at`) sobre los registros conflictivos previos.
 
 2. **Definición de Conflicto (El Criterio)**: Reglas de negocio encapsuladas (Lambdas/Predicados) que definen la unicidad para cada entidad específica (ej: *"Mismo CBU"* o *"Fechas superpuestas"*).
 
@@ -80,7 +80,7 @@ graph TD
         F -- "SI (Conflicto)" --> G{"¿Qué Estrategia es?"}
         
         G -- "DEFAULT" --> H["Lanzar EntityConflictException"]
-        G -- "FORCE" --> I["Marcar Anterior como Deleted=true"]
+        G -- "FORCE" --> I["Marcar Anterior como deleted_at=NOW"]
         I --> J["Guardar Anterior Modificado"]
     end
 
@@ -99,8 +99,8 @@ graph TD
 
 1. **El Servicio (Rosa)**: Actúa como configurador. Su única responsabilidad es decir "Para mí, un duplicado es X" (caja rosa `Definir Regla`).
 2. **La Estrategia (Azul)**: Es el motor. Recibe la regla y la aplica ciegamente.
-3. **El Resultado**: Los datos se guardan, o el usuario recibe un error limpio.
-4. **Éxito en DEFAULT**: Importante es observar que si el detector devuelve "NO" para todos los registros, el flujo llega a "Guardar Nuevo Registro". **`DEFAULT` guarda exitosamente siempre que no haya colisiones.**
+3. **El Resultado**: O los datos se guardan, o el usuario recibe un error limpio.
+4. **Éxito en DEFAULT**: Observa que si el detector devuelve "NO" para todos los registros, el flujo llega a "Guardar Nuevo Registro". **`DEFAULT` guarda exitosamente siempre que no haya colisiones.**
 
 ### 2.2. Visión Estructural (Diagrama de Clases)
 
@@ -172,7 +172,7 @@ sequenceDiagram
         deactivate Rule
         
         Note right of Strat: Como es FORCE, borramos el anterior
-        Strat->>Repo: save(existingItem.setDeleted(true))
+        Strat->>Repo: save(existingItem.setDeletedAt(now))
     end
     
     Strat->>Repo: save(newEntity)
@@ -202,7 +202,7 @@ if (type.equals("DEFAULT")) {
 } else if (type.equals("FORCE")) {
     // Lógica repetida de borrado
     conflict.ifPresent(e -> {
-        e.setDeleted(true); 
+        e.setDeletedAt(LocalDateTime.now()); 
         repo.save(e);
     });
 }
@@ -247,7 +247,7 @@ public interface CollisionDetector<T> {
 Clases genéricas que ejecutan la lógica de guardado.
 
 ```java
-public interface PersistenceStrategy<T extends HasDeleted & HasId> {
+public interface PersistenceStrategy<T extends HasDeletedAt & HasId> {
     Long apply(T newEntity, Collection<T> storedEntities, Consumer<T> saver, CollisionDetector<T> detector);
 }
 ```
@@ -257,7 +257,7 @@ public interface PersistenceStrategy<T extends HasDeleted & HasId> {
 Una gran ventaja de este diseño es que **NO requiere modificar la base de datos ni las entidades existentes**. Para que una entidad pueda usar estas estrategias, solo debe implementar dos interfaces simples que ya son estándar en el proyecto:
 
 1. **`HasId`**: Para reportar el ID en logs y excepciones.
-2. **`HasDeleted`**: Para permitir el "Soft Delete" en la estrategia `FORCE`.
+2. **`HasDeletedAt`**: Para permitir el "Soft Delete" por fecha en la estrategia `FORCE`.
 
 *Nota: Entidades actuales como `ContactsEntity` ya implementan estas interfaces, por lo que la integración es inmediata.*
 
@@ -286,12 +286,12 @@ Estas clases se escriben **una sola vez** y sirven para TODAS las entidades.
 ```java
 @Component("defaultPersistenceStrategy")
 @Slf4j
-public class DefaultPersistenceStrategy<T extends HasDeleted & HasId> implements PersistenceStrategy<T> {
+public class DefaultPersistenceStrategy<T extends HasDeletedAt & HasId> implements PersistenceStrategy<T> {
 
     @Override
     public Long apply(T newEntity, Collection<T> storedEntities, Consumer<T> saver, CollisionDetector<T> detector) {
         Optional<T> conflict = storedEntities.stream()
-            .filter(e -> !e.isDeleted()) 
+            .filter(e -> e.getDeletedAt() == null) 
             .filter(e -> detector.isConflict(newEntity, e))
             .findFirst();
 
@@ -315,16 +315,16 @@ public class DefaultPersistenceStrategy<T extends HasDeleted & HasId> implements
 ```java
 @Component("forcePersistenceStrategy")
 @Slf4j
-public class ForcePersistenceStrategy<T extends HasDeleted & HasId> implements PersistenceStrategy<T> {
+public class ForcePersistenceStrategy<T extends HasDeletedAt & HasId> implements PersistenceStrategy<T> {
 
     @Override
     public Long apply(T newEntity, Collection<T> storedEntities, Consumer<T> saver, CollisionDetector<T> detector) {
         storedEntities.stream()
-            .filter(e -> !e.isDeleted())
+            .filter(e -> e.getDeletedAt() == null)
             .filter(e -> detector.isConflict(newEntity, e))
             .forEach(conflictEntity -> {
                 log.info("[FORCE-STRATEGY] Colisión detectada. Realizando Soft-Delete a entidad existente [ID: {}] para permitir la nueva inserción.", conflictEntity.getId());
-                conflictEntity.setDeleted(true); 
+                conflictEntity.setDeletedAt(LocalDateTime.now()); 
                 saver.accept(conflictEntity);
             });
 
@@ -337,7 +337,7 @@ public class ForcePersistenceStrategy<T extends HasDeleted & HasId> implements P
 
 ---
 
-## 6. Reglas de Negocio.
+## 6. Reglas de Negocio (El Combustible)
 
 Aquí es donde reside la flexibilidad del sistema. Definimos los criterios de duplicidad mediante `CollisionDetectors` específicos.
 
