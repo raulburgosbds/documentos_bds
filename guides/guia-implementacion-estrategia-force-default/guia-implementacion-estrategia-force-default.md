@@ -1619,7 +1619,7 @@ El `@Qualifier("nombreDelBean")` le dice a Spring **exactamente qué bean inyect
 
 Los nombres coinciden con los definidos en `@Component("nombreDelBean")` de cada estrategia.
 
-```
+
 
 ### Flujo de Ejecución
 
