@@ -5,9 +5,9 @@
 - **Entidad Objetivo**: `PersonCertificationEntity`
 - **Objetivo**: Implementar estrategia de persistencia flexible con detección de colisiones
 - **Sistema**: Nuevo (independiente de `TypeOfManagement` legacy)
-- **Autor**: Equipo de Desarrollo
+- **Autor**: Equipos de Arquitectura y Desarrollo
 - **Versión**: 1.0
-- **Fecha**: 2024
+- **Fecha**: 2025-12-15
 
 ---
 
