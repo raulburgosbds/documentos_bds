@@ -1,13 +1,13 @@
-# Guía de Implementación: Estrategia Force/Default
+# Guía de Implementación: Estrategia Force/Default para Certificaciones
 
 ## Información del Documento
-
-- **Entidad Objetivo de implementacion inicial**: `PersonCertificationEntity`
+- **Propuesta Base**: [PROPUESTA_NUEVA_ESTRATEGIA_V2.md](https://github.com/raulburgosbds/documentos_bds/blob/main/research/Propuesta_nueva_estrategia_Force_Default/PROPUESTA_NUEVA_ESTRATEGIA_V2.md)
+- **Entidad Objetivo**: `PersonCertificationEntity`
 - **Objetivo**: Implementar estrategia de persistencia flexible con detección de colisiones
 - **Sistema**: Nuevo (independiente de `TypeOfManagement` legacy)
 - **Autor**: Equipo de Desarrollo
 - **Versión**: 1.0
-- **Fecha**: 2024-12-15
+- **Fecha**: 2024
 
 ---
 
@@ -36,6 +36,7 @@
 
 ### Referencia
 - [Análisis Comparativo](#análisis-comparativo-con-sistema-anterior)
+- [Próximos Pasos](#próximos-pasos)
 
 ---
 
@@ -1624,36 +1625,36 @@ Los nombres coinciden con los definidos en `@Component("nombreDelBean")` de cada
 
 ```mermaid
 flowchart TD
-    A[1. Validar request con Validator] --> B[2. Buscar PersonEntity]
+    A[1. Validar request] --> B[2. Buscar PersonEntity]
     B --> C[3. Buscar CertificationEntity]
     C --> D[4. Construir PersonCertificationEntity]
     D --> E[5. Obtener certificaciones existentes]
-    E --> F{6. mode == FORCE?}
-    F -->|Sí| G[7a. Usar ForcePersistenceStrategy]
-    F -->|No| H[7b. Usar DefaultPersistenceStrategy]
-    G --> I[8. strategy.apply con CollisionDetector]
+    E --> F{6. mode FORCE?}
+    F -->|Si| G[7a. ForcePersistenceStrategy]
+    F -->|No| H[7b. DefaultPersistenceStrategy]
+    G --> I[8. strategy.apply]
     H --> I
-    I --> J{9. ¿Hay colisión?}
-    J -->|Sí + DEFAULT| K[Lanzar ConflictException]
-    J -->|Sí + FORCE| L[Soft-delete conflictos]
+    I --> J{9. Hay colision?}
+    J -->|Si DEFAULT| K[Lanzar ConflictException]
+    J -->|Si FORCE| L[Soft-delete conflictos]
     J -->|No| M[Guardar nueva entidad]
     L --> M
-    M --> N[10. Retornar ID guardado]
+    M --> N[10. Retornar ID]
     
-    style A fill:#0052CC,stroke:#003D99,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style B fill:#0065FF,stroke:#0052CC,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style C fill:#0065FF,stroke:#0052CC,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style D fill:#6554C0,stroke:#5243AA,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style E fill:#0065FF,stroke:#0052CC,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style F fill:#FFAB00,stroke:#FF8B00,stroke-width:4px,color:#000000,font-weight:bold
-    style G fill:#00B8D9,stroke:#0065FF,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style H fill:#36B37E,stroke:#00875A,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style I fill:#6554C0,stroke:#5243AA,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style J fill:#FFAB00,stroke:#FF8B00,stroke-width:4px,color:#000000,font-weight:bold
-    style K fill:#DE350B,stroke:#BF2600,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style L fill:#FF8B00,stroke:#FF6B00,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style M fill:#36B37E,stroke:#00875A,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style N fill:#00C7E6,stroke:#00B8D9,stroke-width:4px,color:#000000,font-weight:bold
+    style A fill:#0052CC,stroke:#003D99,stroke-width:4px,color:#FFFFFF
+    style B fill:#0065FF,stroke:#0052CC,stroke-width:4px,color:#FFFFFF
+    style C fill:#0065FF,stroke:#0052CC,stroke-width:4px,color:#FFFFFF
+    style D fill:#6554C0,stroke:#5243AA,stroke-width:4px,color:#FFFFFF
+    style E fill:#0065FF,stroke:#0052CC,stroke-width:4px,color:#FFFFFF
+    style F fill:#FFAB00,stroke:#FF8B00,stroke-width:4px,color:#000000
+    style G fill:#00B8D9,stroke:#0065FF,stroke-width:4px,color:#FFFFFF
+    style H fill:#36B37E,stroke:#00875A,stroke-width:4px,color:#FFFFFF
+    style I fill:#6554C0,stroke:#5243AA,stroke-width:4px,color:#FFFFFF
+    style J fill:#FFAB00,stroke:#FF8B00,stroke-width:4px,color:#000000
+    style K fill:#DE350B,stroke:#BF2600,stroke-width:4px,color:#FFFFFF
+    style L fill:#FF8B00,stroke:#FF6B00,stroke-width:4px,color:#FFFFFF
+    style M fill:#36B37E,stroke:#00875A,stroke-width:4px,color:#FFFFFF
+    style N fill:#00C7E6,stroke:#00B8D9,stroke-width:4px,color:#000000
 ```
 
 ### Características
@@ -2327,6 +2328,21 @@ void createCertification_ShouldPassMode_WhenParamIsPresent() throws Exception {
 | **Principios SOLID** | Viola varios | Cumple todos |
 | **Interface de entidad** | `HasDeleted` | `HasDeletedAt` (acceso directo) |
 | **Convivencia** | Sigue funcionando | Independiente |
+
+---
+
+## Próximos Pasos
+
+1. **Implementar prerequisito** (HasDeletedAt interface)
+2. **Migrar repositorio** (PersonCertificationRepository de JpaRepositoryWithTypeOfManagement a JpaRepository)
+3. **Actualizar entidad** (PersonCertificationEntity - eliminar HasDeleted y HasType, agregar HasDeletedAt)
+4. **Implementar infraestructura** (interfaces y strategies)
+5. **Crear detector** para certificaciones
+6. **Actualizar service** para usar strategies
+7. **Actualizar controller** con nuevo enum
+8. **Escribir tests** completos
+9. **Verificar tests existentes** después del cambio de repositorio
+10. **Migrar otras entidades** (opcional, en el futuro)
 
 ---
 
