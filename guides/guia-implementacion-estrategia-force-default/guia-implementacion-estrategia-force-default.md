@@ -1120,7 +1120,7 @@ public class CertificationCollisionDetector implements CollisionDetector<PersonC
 
     @Override
     public boolean isConflict(PersonCertificationEntity candidate, PersonCertificationEntity existing) {
-        
+
         // Rule 1: Must be same certification type
         if (!candidate.getCertification().getId().equals(existing.getCertification().getId())) {
             return false; // Different types never conflict
@@ -1128,37 +1128,43 @@ public class CertificationCollisionDetector implements CollisionDetector<PersonC
 
         // Rule 2: Date ranges must overlap
         return isDateRangeOverlap(
-            candidate.getStartDate(), candidate.getEndDate(),
-            existing.getStartDate(), existing.getEndDate()
-        );
+                candidate.getStartDate(), candidate.getEndDate(),
+                existing.getStartDate(), existing.getEndDate());
     }
 
     /**
      * Check if two date ranges overlap.
      * 
      * Cases:
-     * 1. If either endDate is NULL - always overlaps (never expires)
-     * 2. Otherwise - standard interval overlap check
+     * 1. If either startDate is NULL - permanent certification (always overlaps)
+     * 2. If either endDate is NULL - never expires (always overlaps)
+     * 3. Otherwise - standard interval overlap check
      */
     private boolean isDateRangeOverlap(
             ZonedDateTime start1, ZonedDateTime end1,
             ZonedDateTime start2, ZonedDateTime end2) {
-        
-        // Case 1: Either range has no end date (never expires)
+
+        // Case 1: Either range has no start date (permanent certification)
+        if (start1 == null || start2 == null) {
+            log.debug("Date overlap detected: One or both ranges have no start date (permanent certification)");
+            return true;
+        }
+
+        // Case 2: Either range has no end date (never expires)
         if (end1 == null || end2 == null) {
             log.debug("Date overlap detected: One or both ranges have no end date");
             return true;
         }
 
-        // Case 2: Standard interval overlap
-        // Overlap if: start1 < end2 AND end1 > start2
+        // Case 3: Standard interval overlap
+        // Overlap if: start1 < end2 AND end1 > start2  
         boolean overlaps = start1.isBefore(end2) && end1.isAfter(start2);
-        
+
         if (overlaps) {
             log.debug("Date overlap detected: [{} to {}] overlaps with [{} to {}]",
-                     start1, end1, start2, end2);
+                    start1, end1, start2, end2);
         }
-        
+
         return overlaps;
     }
 }
