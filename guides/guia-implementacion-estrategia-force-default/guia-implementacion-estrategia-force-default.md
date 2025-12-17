@@ -5,9 +5,9 @@
 - **Entidad Objetivo**: `PersonCertificationEntity`
 - **Objetivo**: Implementar estrategia de persistencia flexible con detección de colisiones
 - **Sistema**: Nuevo (independiente de `TypeOfManagement` legacy)
-- **Autor**: Equipos de Arquitectura y Desarrollo
+- **Autor**: Equipo de Desarrollo
 - **Versión**: 1.0
-- **Fecha**: 2025-12-15
+- **Fecha**: 2024
 
 ---
 
@@ -1060,8 +1060,9 @@ conflict3.setDeletedAt(deletionTimestamp);  // deletedAt = 2024-01-01 10:00:00.1
 **Reglas de negocio implementadas:**
 1. **Mismo tipo de certificación**: Solo hay conflicto si ambas certificaciones son del mismo tipo (mismo `certification_id`)
 2. **Fechas solapadas**: Las fechas deben solaparse para que haya conflicto
-   - Si cualquier `endDate` es NULL: siempre hay solapamiento (certificación que nunca expira)
-   - Si ambas tienen `endDate`: aplica lógica estándar de intervalos (`start1 < end2 AND end1 > start2`)
+   - Si cualquier `startDate` es NULL: certificación permanente (siempre hay solapamiento)
+   - Si cualquier `endDate` es NULL: certificación que nunca expira (siempre hay solapamiento)
+   - Si ambas tienen `startDate` y `endDate`: aplica lógica estándar de intervalos (`start1 < end2 AND end1 > start2`)
 
 **Ejemplos de detección:**
 ```
@@ -1073,11 +1074,15 @@ Caso 2: Mismo tipo, sin end date
 CERT_IVA [2024-01-01 to NULL] vs CERT_IVA [2024-06-01 to 2024-12-31]
 → CONFLICTO (NULL significa "nunca expira", siempre solapa)
 
-Caso 3: Mismo tipo, sin solapamiento
+Caso 3: Mismo tipo, sin start date (certificación permanente)
+CERT_IVA [NULL to 2024-12-31] vs CERT_IVA [2024-06-01 to 2024-12-31]
+→ CONFLICTO (NULL en startDate significa "siempre ha existido", siempre solapa)
+
+Caso 4: Mismo tipo, sin solapamiento
 CERT_IVA [2024-01-01 to 2024-06-30] vs CERT_IVA [2024-07-01 to 2024-12-31]
 → NO CONFLICTO (una termina antes de que empiece la otra)
 
-Caso 4: Diferente tipo
+Caso 5: Diferente tipo
 CERT_IVA [2024-01-01 to 2024-12-31] vs CERT_GANANCIAS [2024-01-01 to 2024-12-31]
 → NO CONFLICTO (diferentes tipos de certificación)
 ```
@@ -1087,6 +1092,7 @@ CERT_IVA [2024-01-01 to 2024-12-31] vs CERT_GANANCIAS [2024-01-01 to 2024-12-31]
 - Implementa `CollisionDetector<PersonCertificationEntity>`
 - Logging de debug para troubleshooting
 - Método privado `isDateRangeOverlap()` con lógica de intervalos bien documentada
+- Maneja casos edge: startDate NULL y endDate NULL
 
 ### Ubicación
 `microservice/src/main/java/ar/com/bds/people/center/strategy/detectors/CertificationCollisionDetector.java`
@@ -1178,13 +1184,16 @@ flowchart TD
     B -->|No| C["Retornar FALSE<br/>(No hay conflicto)"]
     B -->|Sí| D["isDateRangeOverlap<br/>(start1, end1, start2, end2)"]
     
-    D --> E{¿end1 == null<br/>OR<br/>end2 == null?}
-    E -->|Sí| F["Log: No end date<br/>Retornar TRUE<br/>(Nunca expira = siempre solapa)"]
-    E -->|No| G["Calcular:<br/>start1 < end2<br/>AND<br/>end1 > start2"]
+    D --> E{¿start1 == null<br/>OR<br/>start2 == null?}
+    E -->|Sí| F["Log: No start date<br/>Retornar TRUE<br/>(Permanente = siempre solapa)"]
+    E -->|No| G{¿end1 == null<br/>OR<br/>end2 == null?}
     
-    G --> H{¿overlaps<br/>== true?}
-    H -->|Sí| I["Log: Overlap detected<br/>Retornar TRUE<br/>(Hay colisión)"]
-    H -->|No| J["Retornar FALSE<br/>(No hay colisión)"]
+    G -->|Sí| H["Log: No end date<br/>Retornar TRUE<br/>(Nunca expira = siempre solapa)"]
+    G -->|No| I["Calcular:<br/>start1 < end2<br/>AND<br/>end1 > start2"]
+    
+    I --> J{¿overlaps<br/>== true?}
+    J -->|Sí| K["Log: Overlap detected<br/>Retornar TRUE<br/>(Hay colisión)"]
+    J -->|No| L["Retornar FALSE<br/>(No hay colisión)"]
     
     style A fill:#0052CC,stroke:#003D99,stroke-width:4px,color:#FFFFFF,font-weight:bold
     style B fill:#FFAB00,stroke:#FF8B00,stroke-width:4px,color:#000000,font-weight:bold
@@ -1192,10 +1201,12 @@ flowchart TD
     style D fill:#0065FF,stroke:#0052CC,stroke-width:4px,color:#FFFFFF,font-weight:bold
     style E fill:#FFAB00,stroke:#FF8B00,stroke-width:4px,color:#000000,font-weight:bold
     style F fill:#DE350B,stroke:#BF2600,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style G fill:#6554C0,stroke:#5243AA,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style H fill:#FFAB00,stroke:#FF8B00,stroke-width:4px,color:#000000,font-weight:bold
-    style I fill:#DE350B,stroke:#BF2600,stroke-width:4px,color:#FFFFFF,font-weight:bold
-    style J fill:#36B37E,stroke:#00875A,stroke-width:4px,color:#FFFFFF,font-weight:bold
+    style G fill:#FFAB00,stroke:#FF8B00,stroke-width:4px,color:#000000,font-weight:bold
+    style H fill:#DE350B,stroke:#BF2600,stroke-width:4px,color:#FFFFFF,font-weight:bold
+    style I fill:#6554C0,stroke:#5243AA,stroke-width:4px,color:#FFFFFF,font-weight:bold
+    style J fill:#FFAB00,stroke:#FF8B00,stroke-width:4px,color:#000000,font-weight:bold
+    style K fill:#DE350B,stroke:#BF2600,stroke-width:4px,color:#FFFFFF,font-weight:bold
+    style L fill:#36B37E,stroke:#00875A,stroke-width:4px,color:#FFFFFF,font-weight:bold
 ```
 
 ### Ejemplos Visuales del Flujo
@@ -1212,7 +1223,23 @@ Flujo:
   Retornar FALSE (No hay conflicto)
 ```
 
-#### **Ejemplo 2: Mismo tipo, sin end date**
+#### **Ejemplo 2: Mismo tipo, sin start date (certificación permanente)**
+```
+Input:
+  candidate: CERT_IVA [NULL to 2024-12-31]
+  existing:  CERT_IVA [2024-06-01 to 2024-12-31]
+
+Flujo:
+  isConflict() → ¿Mismo certification_id? → SÍ
+  ↓
+  isDateRangeOverlap() → ¿start1 == null OR start2 == null? → SÍ
+  ↓
+  Log: "One or both ranges have no start date (permanent certification)"
+  ↓
+  Retornar TRUE (Hay colisión - certificación permanente)
+```
+
+#### **Ejemplo 3: Mismo tipo, sin end date**
 ```
 Input:
   candidate: CERT_IVA [2024-01-01 to NULL]
@@ -1221,14 +1248,16 @@ Input:
 Flujo:
   isConflict() → ¿Mismo certification_id? → SÍ
   ↓
-  isDateRangeOverlap() → ¿end1 == null OR end2 == null? → SÍ
+  isDateRangeOverlap() → ¿start1 == null OR start2 == null? → NO
+  ↓
+  ¿end1 == null OR end2 == null? → SÍ
   ↓
   Log: "One or both ranges have no end date"
   ↓
   Retornar TRUE (Hay colisión - nunca expira)
 ```
 
-#### **Ejemplo 3: Mismo tipo, fechas solapadas**
+#### **Ejemplo 4: Mismo tipo, fechas solapadas**
 ```
 Input:
   candidate: CERT_IVA [2024-01-01 to 2024-12-31]
@@ -1237,7 +1266,9 @@ Input:
 Flujo:
   isConflict() → ¿Mismo certification_id? → SÍ
   ↓
-  isDateRangeOverlap() → ¿end1 == null OR end2 == null? → NO
+  isDateRangeOverlap() → ¿start1 == null OR start2 == null? → NO
+  ↓
+  ¿end1 == null OR end2 == null? → NO
   ↓
   Calcular: start1 < end2 AND end1 > start2
   → 2024-01-01 < 2025-06-01 ✓ AND 2024-12-31 > 2024-06-01 ✓
@@ -1249,7 +1280,7 @@ Flujo:
   Retornar TRUE (Hay colisión)
 ```
 
-#### **Ejemplo 4: Mismo tipo, sin solapamiento**
+#### **Ejemplo 5: Mismo tipo, sin solapamiento**
 ```
 Input:
   candidate: CERT_IVA [2024-01-01 to 2024-06-30]
@@ -1258,7 +1289,9 @@ Input:
 Flujo:
   isConflict() → ¿Mismo certification_id? → SÍ
   ↓
-  isDateRangeOverlap() → ¿end1 == null OR end2 == null? → NO
+  isDateRangeOverlap() → ¿start1 == null OR start2 == null? → NO
+  ↓
+  ¿end1 == null OR end2 == null? → NO
   ↓
   Calcular: start1 < end2 AND end1 > start2
   → 2024-01-01 < 2024-12-31 ✓ AND 2024-06-30 > 2024-07-01 ✗
@@ -1279,10 +1312,13 @@ CERT_IVA vs CERT_GANANCIAS → NO hay colisión (diferentes tipos)
 
 **Regla 2: Fechas solapadas**
 ```java
-// Caso 1: endDate NULL (nunca expira)
+// Caso 1: startDate NULL (certificación permanente)
+[NULL to 2024-12-31] vs [2024-06-01 to 2024-12-31] → Colisión
+
+// Caso 2: endDate NULL (nunca expira)
 [2024-01-01 to NULL] vs [2024-06-01 to 2024-12-31] → Colisión
 
-// Caso 2: Solapamiento estándar
+// Caso 3: Solapamiento estándar
 [2024-01-01 to 2024-12-31] vs [2024-06-01 to 2025-06-01] → Colisión
 [2024-01-01 to 2024-06-30] vs [2024-07-01 to 2024-12-31] → NO colisión
 ```
