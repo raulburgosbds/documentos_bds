@@ -10,9 +10,8 @@
 
 ### PARTE 1: FUNDAMENTOS
 1. [Principios y Arquitectura](#1-principios-y-arquitectura)
-   - Principios SOLID
-   - Arquitectura de Capas
-   - Flujo de Request
+   - Principios Básicos.
+   - Flujo de una Request y Separación de Responsabilidades (SRP)
 
 ### PARTE 2: LIBRARY (Contratos)
 2. [Library - DTOs y Contratos](#2-library---dtos-y-contratos)
@@ -59,19 +58,7 @@
 
 ## 1. Principios y Arquitectura
 
-### 1.1. Principios SOLID
-
-#### Separación de Responsabilidades (SRP)
-
-Cada clase debe tener **una única responsabilidad**:
-
-```
-Controller  → Orquestación de requests HTTP (NO lógica de negocio)
-Service     → Lógica de negocio y coordinación
-Validator   → Reglas de negocio complejas
-Repository  → Acceso a datos
-Mapper      → Transformación DTO ↔ Entity
-```
+### 1.1. Principios Básicos.
 
 #### Fail-Fast
 
@@ -97,7 +84,7 @@ public Long create(Long personId, CreateRequest request) {
 }
 ```
 
-#### Excepciones, No Nulls
+#### Usar Excepciones, No retornar Nulls
 
 **Nunca retornar `null` en métodos públicos:**
 
@@ -105,12 +92,12 @@ public Long create(Long personId, CreateRequest request) {
 //  CORRECTO
 public PersonEntity findById(Long id) {
     return repository.findById(id)
-        .orElseThrow(() -> new NotFoundException("Person not found with id: " + id));
+        .orElseThrow(() -> new ResourceNotFoundException("Person not found with id: " + id));
 }
 
 //  INCORRECTO
 public PersonEntity findById(Long id) {
-    return repository.findById(id).orElse(null); // NO!
+    return repository.findById(id).orElse(null); // NO hacer esto
 }
 ```
 
@@ -118,7 +105,7 @@ public PersonEntity findById(Long id) {
 
 ### 1.2. Arquitectura de Capas
 
-#### Flujo de una Request
+#### Flujo de una Request y Separación de Responsabilidades (SRP)
 
 ```
 1. HTTP Request
@@ -126,6 +113,7 @@ public PersonEntity findById(Long id) {
 2. Controller (@RestController)
    - Validación básica (@Valid)
    - Orquestación
+   - NO icluir lógica de negocio
    ↓
 3. Validator (si aplica)
    - Reglas de negocio complejas
@@ -142,9 +130,12 @@ public PersonEntity findById(Long id) {
    - Acceso a datos
    - Queries
    ↓
-7. Database
+7. Mapper
+    - Transformación DTO ↔ Entity
    ↓
-8. HTTP Response
+8. Database
+   ↓
+9. HTTP Response
 ```
 
 #### Responsabilidades por Capa
@@ -164,7 +155,7 @@ public PersonEntity findById(Long id) {
 
 ### Visión General
 
-La **library** es un módulo compartido que contiene DTOs, Enums, Interfaces, Rutas API y Requests.
+La **library** es un módulo compartido que contiene DTOs, Enums, Interfaces, Rutas API, Clientes API y Requests.
 
 **Ubicación**: `C:\repos\bds\people-center\library\`
 
@@ -195,6 +186,13 @@ library/
 
 #### DTOs Públicos (APIs de Negocio)
 
+**Reglas para DTOs Públicos**:
+- 4 anotaciones: `@Data`, `@Builder`, `@NoArgsConstructor`, `@AllArgsConstructor`
+- `Long` para IDs (no `Integer`)
+- `ZonedDateTime` para fechas (no `LocalDateTime`)
+- Bean Validation con mensajes descriptivos
+- NO incluir `deletedAt` (los consumidores solo ven registros activos)
+
 **Estructura Básica**:
 
 ```java
@@ -218,16 +216,15 @@ public class PersonCertification {
 }
 ```
 
-**Reglas para DTOs Públicos**:
-- 4 anotaciones: `@Data`, `@Builder`, `@NoArgsConstructor`, `@AllArgsConstructor`
-- `Long` para IDs (no `Integer`)
-- `ZonedDateTime` para fechas (no `LocalDateTime`)
-- Bean Validation con mensajes descriptivos
-- NO incluir `deletedAt` (los consumidores solo ven registros activos)
+#### DTOs de Administración (Opcionales)
+()
+**Cuándo usar**: Endpoints de auditoría, historial o administración que necesitan mostrar el estado de los registros incluyendo por ejemplo el valor de Deleted At.
 
-#### DTOs de Auditoría/Administración
-
-**Cuándo usar**: Endpoints de auditoría, historial o administración que necesitan mostrar el estado de los registros.
+**Reglas para DTOs de Auditoría**:
+- SÍ incluir `deletedAt` (los consumidores ven registros activos, inactivos y borrados)
+- Incluir método `isActive()` para verificación si corresponde
+- Incluir método `getStatus()` para visualización del estado literal
+- Usar sufijo `Audit`, `Admin` o `History` en el nombre
 
 **Estructura**:
 
@@ -262,13 +259,8 @@ public class PersonCertificationAudit {
 }
 ```
 
-**Reglas para DTOs de Auditoría**:
-- SÍ incluir `deletedAt`
-- Incluir método `isActive()` para verificación
-- Incluir método `getStatus()` para visualización
-- Usar sufijo `Audit` o `Admin` en el nombre
 
-#### Tabla de Decisión: ¿Incluir deletedAt?
+#### Tabla de Decisión: ¿Incluir registros con deletedAt != Null?
 
 | Tipo de DTO | Incluir deletedAt | Razón | Ejemplo de Uso |
 |-------------|-------------------|-------|----------------|
@@ -276,7 +268,7 @@ public class PersonCertificationAudit {
 | **DTO de Auditoría** | SÍ | Administradores necesitan ver estado completo | `GET /v2/people/{id}/certifications/history` |
 | **DTO de Admin** | SÍ | Dashboards administrativos requieren estado | `GET /admin/certifications` |
 
-#### Ejemplo Completo en Service
+#### Ejemplo Completo de los DTOs en un Service
 
 ```java
 @Service
@@ -302,7 +294,7 @@ public class PersonCertificationServiceImpl {
 }
 ```
 
-#### Mapper para Ambos Tipos
+#### Crear Mapper para Ambos Tipos
 
 ```java
 @Mapper(componentModel = "spring")
@@ -319,6 +311,11 @@ public interface PersonCertificationMapper {
 ---
 
 ### 2.2. Requests
+
+**Naming Convention**:
+- `Create{Entity}Request` - Para crear
+- `Update{Entity}Request` - Para actualizar completo
+- `Patch{Entity}Request` - Para actualizar parcial
 
 **Ubicación**: `library/model/.../requests/`
 
@@ -340,51 +337,94 @@ public class CreatePersonCertificationRequest {
     
     private ZonedDateTime endDate;
     
-    // NO incluir id ni createdAt (se generan en backend)
 }
 ```
-
-**Naming Convention**:
-- `Create{Entity}Request` - Para crear
-- `Update{Entity}Request` - Para actualizar completo
-- `Patch{Entity}Request` - Para actualizar parcial
 
 ---
 
 ### 2.3. Enums
+
+**Reglas**:
+-  Usar `@JsonValue` para serialización
+-  Usar `@JsonCreator` para deserialización
+-  Implementar metodo `fromValue()` con validación
+-  Nombres en UPPER_CASE
 
 **Ubicación**: `library/model/.../enums/`
 
 **Estructura**:
 
 ```java
+package ar.com.bds.lib.peoplecenter.model.enums;
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
+/**
+ * Persistence mode for collision handling.
+ * 
+ * - DEFAULT: Strict mode - rejects if conflicts detected
+ * - FORCE: Override mode - soft-deletes conflicts and proceeds
+ */
 @Getter
 @AllArgsConstructor
 public enum PersistenceMode {
     
+    /**
+     * DEFAULT mode: Strict validation.
+     * Rejects persistence if any collision is detected.
+     */
     DEFAULT("DEFAULT"),
+    
+    /**
+     * FORCE mode: Override conflicts.
+     * Soft-deletes conflicting records and proceeds with save.
+     */
     FORCE("FORCE");
     
+    /**
+     * String value for JSON serialization.
+     */
     @JsonValue
     private final String value;
     
+    /**
+     * Converts a string value to the corresponding enum.
+     * Used by Jackson for JSON deserialization.
+     * 
+     * @param value String value from JSON (e.g., "DEFAULT", "FORCE")
+     * @return Corresponding PersistenceMode enum
+     * @throws IllegalArgumentException if value is invalid
+     */
     @JsonCreator
     public static PersistenceMode fromValue(String value) {
+        // Null/empty validation
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                "PersistenceMode value cannot be null or empty. " +
+                "Valid values are: DEFAULT, FORCE"
+            );
+        }
+        
+        // Find matching enum (case-insensitive)
         for (PersistenceMode mode : PersistenceMode.values()) {
             if (mode.value.equalsIgnoreCase(value)) {
                 return mode;
             }
         }
-        throw new IllegalArgumentException("Invalid PersistenceMode: " + value);
+        
+        // No match found - throw descriptive error
+        throw new IllegalArgumentException(
+            String.format(
+                "Invalid PersistenceMode: '%s'. Valid values are: DEFAULT, FORCE",
+                value
+            )
+        );
     }
 }
 ```
-
-**Reglas**:
--  Usar `@JsonValue` para serialización
--  Usar `@JsonCreator` para deserialización
--  Implementar `fromValue()` con validación
--  Nombres en UPPER_CASE
 
 ---
 
@@ -397,6 +437,11 @@ public enum PersistenceMode {
 -  Evita fechas sin hora (`"2024-01-15"`)
 -  Evita strings arbitrarios (`"invalid"`)
 -  Solo acepta ISO-8601 completo (`"2024-01-15T10:00:00Z"`)
+
+**Reglas**:
+-  Usar en **todos** los campos `ZonedDateTime` de Requests
+-  Aplicar con `@JsonDeserialize(using = StrictZonedDateTimeDeserializer.class)`
+-  NO usar en DTOs (solo en Requests)
 
 **Implementación**:
 
@@ -437,41 +482,27 @@ public class CreatePersonCertificationRequest {
 }
 ```
 
-**Reglas**:
--  Usar en **todos** los campos `ZonedDateTime` de Requests
--  Aplicar con `@JsonDeserialize(using = StrictZonedDateTimeDeserializer.class)`
--  NO usar en DTOs (solo en Requests)
-
 ---
 
-### 2.5. PathV2 - Rutas de API
+### 2.5 Person.java - DTO Principal
 
-**Ubicación**: `library/model/.../api/PathV2.java`
+**¿Qué es y Por Qué Existe?**
+Person es el DTO raíz que representa una persona en el sistema. Actúa como un agregado que contiene todos los datos relacionados con una persona: información básica, certificaciones, contactos, documentos, etc. Este patrón permite obtener toda la información de una persona en una sola respuesta de API.
 
-**Estructura**:
+**Beneficios principales:**
 
-```java
-@UtilityClass
-public final class PathV2 {
-    
-    private static final String BASE_PATH = "/v2/people";
-    
-    public static final String CERTIFICATIONS_PATH = BASE_PATH + "/{id}/certifications";
-    public static final String CHANNELS_PATH = BASE_PATH + "/{id}/channels";
-    public static final String CONTACTS_PATH = BASE_PATH + "/{id}/contacts";
-    // ... en orden alfabético
-}
-```
+- Agregado completo: Una sola llamada a la API retorna toda la información de la persona
+- Validación en cascada: @Valid asegura que todos los objetos anidados sean válidos
+- Inicialización segura: @Builder.Default evita NullPointerException en listas
+- Tipo seguro: Implementa HasId para operaciones genéricas
+- Inmutabilidad opcional: Puede usarse con @Builder para crear objetos inmutables
 
-**Reglas**:
--  Mantener orden alfabético
--  Usar kebab-case en URLs (`/tax-activities`, no `/taxActivities`)
--  Naming: `{ENTITY}_PATH`
--  Usar `BASE_PATH` para construir
+**Reglas:**
 
----
-
-### 2.6. Person.java - DTO Principal
+- Usar @Valid para validación en cascada
+- Usar @Builder.Default con new ArrayList<>()
+- Mantener orden alfabético
+- Inicializar siempre (evita NPE)
 
 **Ubicación**: `library/model/.../model/Person.java`
 
@@ -499,6 +530,43 @@ public class Person implements HasId {
     // ... otras listas en orden alfabético
 }
 ```
+---
+
+### 2.6. PathV2 - Rutas de API
+
+**¿Qué es y Por Qué Existe?**
+PathV2 es una clase utilitaria que centraliza todas las rutas (endpoints) de la API REST. Actúa como un contrato compartido entre la library y el microservice, garantizando que ambos usen exactamente las mismas URLs.
+
+**Beneficios principales:**
+
+- Single Source of Truth: Una sola definición de cada ruta, compartida entre servidor y cliente
+- Refactoring seguro: Cambiar una ruta en un solo lugar actualiza automáticamente controller y client
+- Prevención de typos: Errores detectados en compile-time, no en runtime (404)
+- Documentación viva: Un vistazo rápido muestra toda la API disponible
+- Versionado fácil: Cambiar de v2 a v3 modificando una sola línea
+
+**Reglas**:
+-  Mantener orden alfabético
+-  Usar kebab-case en URLs (`/tax-activities`, no `/taxActivities`)
+-  Naming: `{ENTITY}_PATH`
+-  Usar `BASE_PATH` para construir
+
+**Ubicación**: `library/model/.../api/PathV2.java`
+
+**Estructura**:
+
+```java
+@UtilityClass
+public final class PathV2 {
+    
+    private static final String BASE_PATH = "/v2/people";
+    
+    public static final String CERTIFICATIONS_PATH = BASE_PATH + "/{id}/certifications";
+    public static final String CHANNELS_PATH = BASE_PATH + "/{id}/channels";
+    public static final String CONTACTS_PATH = BASE_PATH + "/{id}/contacts";
+    // ... en orden alfabético
+}
+```
 
 **Reglas**:
 -  Usar `@Valid` para validación en cascada
@@ -509,6 +577,15 @@ public class Person implements HasId {
 ---
 
 ### 2.7. CHANGELOG.md - OBLIGATORIO Antes de PR
+
+¿Qué es y Por Qué Existe?
+CHANGELOG.md
+ es un archivo obligatorio en la library que documenta todos los cambios realizados en cada versión. Actúa como un historial de cambios que permite a los consumidores de la library entender qué se agregó, modificó o eliminó en cada release.
+
+Beneficios principales:
+
+Transparencia: Los consumidores saben exactamente qué cambió en cada versión
+Trazabilidad: Fácil identificar cuándo se introdujo una feature o fix
 
 **Ubicación**: `library/CHANGELOG.md`
 
@@ -530,101 +607,15 @@ public class Person implements HasId {
   - Certification Model
   - PersonCertification Model
 ```
-
-**Categorías**:
-- **Added** - Nuevos DTOs, Enums, Requests, Paths
-- **Changed** - Modificaciones a modelos existentes
-- **Fixed** - Correcciones de bugs
-- **Removed** - Eliminación de código
-
-**Workflow Antes de PR**:
-1. Identificar cambios en la library
-2. Determinar nueva versión (X.Y.Z)
-3. Actualizar `library/CHANGELOG.md` (al INICIO)
-4. Actualizar `library/pom.xml` con nueva versión
-
-**Reglas de Oro**:
--  Actualizar SIEMPRE antes de PR
--  Agregar al INICIO del archivo (no al final)
--  Incrementar versión correctamente
--  Sincronizar con pom.xml
-
+    
 ---
-
-### Workflow Completo: Agregar Nueva Entidad en Library
-
-#### Paso 1: Crear DTO
-```java
-// library/model/.../model/TaxActivity.java
-@Data @NoArgsConstructor @AllArgsConstructor @Builder
-public class TaxActivity {
-    private Long id;
-    @NotNull(message = "Activity code is required")
-    private String activityCode;
-    private ZonedDateTime startDate;
-}
-```
-
-#### Paso 2: Crear Request
-```java
-// library/model/.../requests/CreateTaxActivityRequest.java
-@Data @Builder
-public class CreateTaxActivityRequest {
-    @NotBlank(message = "Activity code is required")
-    private String activityCode;
-    @NotNull(message = "Start date is required")
-    @JsonDeserialize(using = StrictZonedDateTimeDeserializer.class)
-    private ZonedDateTime startDate;
-}
-```
-
-#### Paso 3: Crear Enum (si es necesario)
-```java
-// library/model/.../enums/TaxActivityType.java
-@Getter @AllArgsConstructor
-public enum TaxActivityType {
-    PRIMARY("PRIMARY"), SECONDARY("SECONDARY");
-    @JsonValue private final String value;
-    @JsonCreator
-    public static TaxActivityType fromValue(String value) { /* ... */ }
-}
-```
-
-#### Paso 4: Agregar Ruta en PathV2
-```java
-public static final String TAX_ACTIVITIES_PATH = BASE_PATH + "/{id}/tax-activities";
-```
-
-#### Paso 5: Agregar Lista en Person.java
-```java
-@Valid
-@Builder.Default
-private List<TaxActivity> taxActivities = new ArrayList<>();
-```
-
-#### Paso 6: Actualizar CHANGELOG.md
-```markdown
-*Version 0.11.0-SNAPSHOT-CON27-2 - Released 2025-12-16*
-- **Added**
-  - TaxActivity Model
-  - CreateTaxActivityRequest Model
-  - TaxActivityType Enum
-  - TAX_ACTIVITIES_PATH in PathV2
-  - taxActivities list in Person Model
-```
-
-#### Paso 7: Actualizar pom.xml
-```xml
-<version>0.11.0-SNAPSHOT</version>
-```
-
----
-
-## 3. Implementación en Microservice
-
-### 3.1. Entities y Repositories
 
 #### Entity
+
+**Reglas**:
+-  Implementar interfaces `HasId`, `HasDeletedAt`
+-  `@CreationTimestamp` para `createdAt`
+-  `@JsonBackReference` en relaciones bidireccionales
 
 **Ubicación**: `microservice/src/main/java/ar/com/bds/people/center/entity/`
 
@@ -673,13 +664,12 @@ public class PersonCertificationEntity implements HasId, HasDeletedAt {
 }
 ```
 
-**Reglas**:
--  Implementar interfaces `HasId`, `HasDeletedAt`
--  Usar `@Where(clause = "deleted_at IS NULL")` para soft-delete
--  `@CreationTimestamp` para `createdAt`
--  `@JsonBackReference` en relaciones bidireccionales
-
 #### Repository
+
+**Reglas**:
+-  Si es posible usar metodo JPA con preferencia a usar Query nativa. 
+-  Query nativa documentada 
+-  Usar `@Param` en queries nativas
 
 **Ubicación**: `microservice/src/main/java/ar/com/bds/people/center/repository/`
 
@@ -716,14 +706,14 @@ public interface PersonCertificationRepository extends JpaRepository<PersonCerti
 }
 ```
 
-**Reglas**:
--  Dos métodos: JPA (activos) + Native (incluye eliminados)
--  Query nativa documentada con JavaDoc
--  Usar `@Param` en queries
-
 ---
 
 ### 3.2. Mappers
+
+**Reglas**:
+-  `@Mapper(componentModel = "spring")`
+-  Campos autogenerados con `ignore = true`
+-  Conversiones de tipo documentadas
 
 **Ubicación**: `microservice/src/main/java/ar/com/bds/people/center/mapper/`
 
@@ -744,14 +734,14 @@ public interface PersonCertificationMapper {
 }
 ```
 
-**Reglas**:
--  `@Mapper(componentModel = "spring")`
--  Campos autogenerados con `ignore = true`
--  Conversiones de tipo documentadas
-
 ---
 
 ### 3.3. Validators
+
+**Reglas**:
+-  Validaciones de reglas de negocio complejas
+-  Mensajes de error claros
+-  Logging con nivel `warn`
 
 **Ubicación**: `microservice/src/main/java/ar/com/bds/people/center/validator/`
 
@@ -789,14 +779,19 @@ public class CertificationValidator {
 }
 ```
 
-**Reglas**:
--  Validaciones de reglas de negocio complejas
--  Mensajes de error claros
--  Logging con nivel `warn`
-
 ---
 
 ### 3.4. Services
+
+**Reglas**:
+-  `@Transactional` en métodos que escriben
+-  `@Transactional(readOnly = true)` en consultas
+-  Validaciones antes de persistir
+-  Logging en inicio/fin de operaciones
+-  Excepciones con mensajes descriptivos
+-  NO retornar `null` en métodos públicos
+-  Crear constructor explícito cuando hay `@Qualifier` (No usar constructor de Loombok en este caso)
+-  No permitir el borrado logico de un mismo registro mas de una vez, lanzar IllegalStateException
 
 **Ubicación**: `microservice/src/main/java/ar/com/bds/people/center/service/`
 
@@ -918,36 +913,52 @@ public class PersonCertificationServiceImpl implements PersonCertificationServic
     @Override
     @Transactional
     public Long delete(Long personId, Long certificationId) {
-        log.info("Deleting certification {} for person: {}", certificationId, personId);
-        
-        PersonCertificationEntity entity = repository
-            .findByIdAndPersonIdIncludingDeleted(certificationId, personId)
-            .orElseThrow(() -> new ResourceNotFoundException(
-                String.format("Certification %d not found for person %d", 
-                    certificationId, personId)));
-        
-        entity.setDeletedAt(ZonedDateTime.now());
-        repository.save(entity);
-        
-        log.info("Certification {} soft deleted", certificationId);
-        return certificationId;
-    }
+            log.info("Deleting certification {} for person: {}", certificationId, personId);
+
+            PersonCertificationEntity entity = personCertificationRepository
+                            .findByIdAndPersonId_Id(certificationId, personId)
+                            .orElseThrow(() -> new ResourceNotFoundException(
+                                            String.format("Certification not found with id %d for person %d",
+                                            certificationId,                                   personId)));
+
+            // Verificar si ya está eliminada
+            if (entity.getDeletedAt() != null) {
+                    log.warn("Certification with id {} for person {} is already deleted", certificationId,
+                    personId);
+                    throw new IllegalStateException(
+                                 String.format("Certification with id %d for person %d is already deleted", certificationId, personId));
+            }
+
+            entity.setDeletedAt(ZonedDateTime.now());
+            personCertificationRepository.save(entity);
+
+            log.info("Certification {} deleted successfully", certificationId);
+            return entity.getId();
+        }
 }
 ```
-
-**Reglas**:
--  Interface con JavaDoc detallado
--  `@Transactional` en métodos que escriben
--  `@Transactional(readOnly = true)` en consultas
--  Validaciones antes de persistir
--  Logging en inicio/fin de operaciones
--  Excepciones con mensajes descriptivos
--  NO retorna `null` en métodos públicos
--  Constructor explícito cuando hay `@Qualifier`
 
 ---
 
 ### 3.5. Controllers (REST API)
+
+**Reglas - MediaType**:
+
+| Método HTTP | consumes | produces | Ejemplo |
+|-------------|----------|----------|---------|
+| **POST** |  Sí |  Sí | Crear entidad |
+| **PUT** |  Sí |  Sí | Actualizar completo |
+| **PATCH** |  Sí |  Sí | Actualizar parcial |
+| **GET** |  No |  Sí | Obtener entidad |
+| **DELETE** |  No |  Opcional | Eliminar |
+
+**Reglas Generales**:
+-  Solo orquestación/enrutamiento, sin lógica de negocio
+-  `@Valid` en request bodies
+-  Documentación Swagger completa
+-  HTTP status codes correctos (201 para POST, 200 para GET/DELETE, etc.)
+-  Usar `MediaType.APPLICATION_JSON_VALUE` en metodos que escriben y en los que leen.
+-  NO hace checks de null/Evitar vaidaciones en el controller
 
 **Ubicación**: `microservice/src/main/java/ar/com/bds/people/center/controller/`
 
@@ -1025,25 +1036,6 @@ public class CertificationsController {
     }
 }
 ```
-
-**Reglas - MediaType**:
-
-| Método HTTP | consumes | produces | Ejemplo |
-|-------------|----------|----------|---------|
-| **POST** |  Sí |  Sí | Crear entidad |
-| **PUT** |  Sí |  Sí | Actualizar completo |
-| **PATCH** |  Sí |  Sí | Actualizar parcial |
-| **GET** |  No |  Sí | Obtener entidad |
-| **DELETE** |  No |  Opcional | Eliminar |
-
-**Reglas Generales**:
--  Solo orquestación, sin lógica de negocio
--  `@Valid` en request bodies
--  Documentación Swagger completa
--  HTTP status codes correctos (201 para POST, 200 para GET/DELETE)
--  Usar `MediaType.APPLICATION_JSON_VALUE`
--  NO hace checks de null
-
 ---
 
 ## 4. Patrones de Implementación
@@ -1056,312 +1048,33 @@ El **Strategy Pattern** permite manejar colisiones de datos con dos estrategias:
 - **DEFAULT**: Rechaza si hay conflictos (lanza `ConflictException`)
 - **FORCE**: Soft-delete de conflictos y procede
 
-#### Arquitectura
+> **Aencion** Referirse al documento especifico de [implementacion de la estrategia](https://github.com/raulburgosbds/documentos_bds/blob/main/guides/guia-implementacion-estrategia-force-default/guia-implementacion-estrategia-force-default.md) para una guia detallada de su implementacion.
 
-```
-strategy/
-├── CollisionDetector.java          // Interface para detectar colisiones
-├── PersistenceStrategy.java        // Interface para estrategias
-├── impl/
-│   ├── DefaultPersistenceStrategy.java
-│   └── ForcePersistenceStrategy.java
-└── detectors/
-    └── CertificationCollisionDetector.java
-```
+### 4.2. @Transactional
 
-#### Interfaces
+**¿Qué es y Por Qué Existe?**
+@Transactional es una anotación de Spring que gestiona automáticamente las transacciones de base de datos. Garantiza que un conjunto de operaciones se ejecute de forma atómica (todo o nada), manteniendo la consistencia de los datos incluso si ocurre un error.
 
-**CollisionDetector**:
+**Beneficios principales:**
 
-```java
-public interface CollisionDetector<T> {
-    /**
-     * Detects if there is a collision between new entity and existing entities.
-     * 
-     * @param newEntity New entity to check
-     * @param existing Existing entities
-     * @return List of conflicting entities (empty if no collision)
-     */
-    Collection<T> detectCollisions(T newEntity, Collection<T> existing);
-}
-```
+- Atomicidad: Todas las operaciones se completan o ninguna (rollback automático en caso de error)
+- Consistencia: Los datos quedan en estado válido incluso si falla una operación
+- Aislamiento: Las transacciones concurrentes no interfieren entre sí
+- Simplicidad: Spring maneja commit/rollback automáticamente, sin código boilerplate
+- Propagación: Control sobre cómo se comportan transacciones anidadas
 
-**PersistenceStrategy**:
+#### Tabla de Uso
 
-```java
-public interface PersistenceStrategy<T extends HasDeletedAt> {
-    /**
-     * Applies persistence strategy.
-     * 
-     * @param newEntity New entity to persist
-     * @param existing Existing entities
-     * @param saver Function to save entity
-     * @param detector Collision detector
-     * @return ID of persisted entity
-     */
-    Long apply(T newEntity, Collection<T> existing, 
-               Consumer<T> saver, CollisionDetector<T> detector);
-}
-```
+| Operación | Anotación | Razón |
+|-----------|-----------|-------|
+| **CREATE** | `@Transactional` | Escribe en DB |
+| **UPDATE** | `@Transactional` | Escribe en DB |
+| **DELETE** | `@Transactional` | Escribe en DB (soft-delete) |
+| **GET** | `@Transactional(readOnly = true)` | Solo lectura, optimización |
+| **LIST** | `@Transactional(readOnly = true)` | Solo lectura, optimización |
 
-#### Implementaciones
 
-**DefaultPersistenceStrategy**:
-
-```java
-@Component("defaultPersistenceStrategy")
-@Slf4j
-public class DefaultPersistenceStrategy<T extends HasDeletedAt> 
-        implements PersistenceStrategy<T> {
-    
-    @Override
-    public Long apply(T newEntity, Collection<T> existing, 
-                     Consumer<T> saver, CollisionDetector<T> detector) {
-        log.info("Applying DEFAULT strategy");
-        
-        Collection<T> conflicts = detector.detectCollisions(newEntity, existing);
-        
-        if (!conflicts.isEmpty()) {
-            log.warn("Collision detected in DEFAULT mode. Conflicts: {}", 
-                conflicts.stream().map(HasId::getId).collect(Collectors.toList()));
-            
-            throw new ConflictException(
-                "Collision detected. Use FORCE mode to override.",
-                conflicts.stream().map(HasId::getId).collect(Collectors.toList())
-            );
-        }
-        
-        saver.accept(newEntity);
-        log.info("Entity persisted successfully with id: {}", newEntity.getId());
-        return newEntity.getId();
-    }
-}
-```
-
-**ForcePersistenceStrategy**:
-
-```java
-@Component("forcePersistenceStrategy")
-@Slf4j
-public class ForcePersistenceStrategy<T extends HasDeletedAt> 
-        implements PersistenceStrategy<T> {
-    
-    @Override
-    public Long apply(T newEntity, Collection<T> existing, 
-                     Consumer<T> saver, CollisionDetector<T> detector) {
-        log.info("Applying FORCE strategy");
-        
-        Collection<T> conflicts = detector.detectCollisions(newEntity, existing);
-        
-        if (!conflicts.isEmpty()) {
-            log.info("Soft-deleting {} conflicting entities", conflicts.size());
-            ZonedDateTime deletionTimestamp = ZonedDateTime.now();
-            conflicts.forEach(c -> c.setDeletedAt(deletionTimestamp));
-            conflicts.forEach(saver);
-        }
-        
-        saver.accept(newEntity);
-        log.info("Entity persisted successfully with id: {}", newEntity.getId());
-        return newEntity.getId();
-    }
-}
-```
-
-#### Detector
-
-**CertificationCollisionDetector**:
-
-```java
-@Component
-@Slf4j
-public class CertificationCollisionDetector 
-        implements CollisionDetector<PersonCertificationEntity> {
-    
-    @Override
-    public Collection<PersonCertificationEntity> detectCollisions(
-            PersonCertificationEntity newEntity,
-            Collection<PersonCertificationEntity> existing) {
-        
-        log.debug("Detecting collisions for certification code: {}", 
-            newEntity.getCertificationCode());
-        
-        return existing.stream()
-            .filter(e -> e.getCertificationCode().equals(newEntity.getCertificationCode()))
-            .filter(e -> !e.isDeleted())
-            .collect(Collectors.toList());
-    }
-}
-```
-
-**Reglas para Detectors**:
--  NO acceso a DB (solo comparación en memoria)
--  Filtrar solo activos (`!isDeleted()`)
--  Logging con nivel `debug`
-
-#### Uso en Service
-
-```java
-@Service
-public class PersonCertificationServiceImpl {
-    
-    private final PersistenceStrategy<PersonCertificationEntity> defaultStrategy;
-    private final PersistenceStrategy<PersonCertificationEntity> forceStrategy;
-    private final CollisionDetector<PersonCertificationEntity> detector;
-    
-    // Constructor explícito con @Qualifier
-    public PersonCertificationServiceImpl(
-            @Qualifier("defaultPersistenceStrategy") 
-            PersistenceStrategy<PersonCertificationEntity> defaultStrategy,
-            @Qualifier("forcePersistenceStrategy") 
-            PersistenceStrategy<PersonCertificationEntity> forceStrategy,
-            CollisionDetector<PersonCertificationEntity> detector) {
-        this.defaultStrategy = defaultStrategy;
-        this.forceStrategy = forceStrategy;
-        this.detector = detector;
-    }
-    
-    @Transactional
-    public Long create(Long personId, CreateRequest request, PersistenceMode mode) {
-        // ... validaciones ...
-        
-        PersistenceStrategy<PersonCertificationEntity> strategy = 
-            mode == PersistenceMode.FORCE ? forceStrategy : defaultStrategy;
-        
-        return strategy.apply(newEntity, existing, repository::save, detector);
-    }
-}
-```
-
-**Reglas**:
--  Usar `@Qualifier` para inyección
--  Constructor explícito (NO `@RequiredArgsConstructor`)
--  Seleccionar estrategia según `PersistenceMode`
-
----
-
-### 4.2. Soft-Delete con @Where
-
-#### Configuración en Entity
-
-```java
-@Entity
-@Where(clause = "deleted_at IS NULL")  // ← CLAVE: Filtra eliminados automáticamente
-public class PersonCertificationEntity implements HasDeletedAt {
-    
-    @Column(name = "deleted_at")
-    private ZonedDateTime deletedAt;
-    
-    @Override
-    public boolean isDeleted() {
-        return deletedAt != null;
-    }
-}
-```
-
-#### Comportamiento de @Where
-
-```java
-// Con @Where(clause = "deleted_at IS NULL")
-
-// Método JPA estándar
-repository.findById(1L);
-// SQL: SELECT * FROM person_certification WHERE id = 1 AND deleted_at IS NULL
-
-// findAll()
-repository.findAll();
-// SQL: SELECT * FROM person_certification WHERE deleted_at IS NULL
-```
-
-**Resultado**: Todos los métodos JPA automáticamente excluyen registros eliminados.
-
-#### Problema: Recuperar Registros Eliminados
-
-**Escenario**: Necesitas acceder a registros eliminados para:
--  Operaciones idempotentes (DELETE múltiple)
--  Auditoría e historial
--  Recuperación de datos
-
-**Solución: Query Nativa**
-
-```java
-@Repository
-public interface PersonCertificationRepository extends JpaRepository<PersonCertificationEntity, Long> {
-    
-    //  Este método NO retorna eliminados (usa @Where)
-    Optional<PersonCertificationEntity> findByIdAndPersonId_Id(Long id, Long personId);
-    
-    /**
-     *  Este método SÍ retorna eliminados (bypasea @Where con query nativa)
-     */
-    @Query(value = "SELECT * FROM person_certification WHERE id = :id AND person_id = :personId", 
-           nativeQuery = true)
-    Optional<PersonCertificationEntity> findByIdAndPersonIdIncludingDeleted(
-        @Param("id") Long id,
-        @Param("personId") Long personId);
-}
-```
-
-#### Comparación: JPA vs Native Query
-
-| Aspecto | Método JPA | Query Nativa |
-|---------|------------|--------------|
-| **Sintaxis** | `findByIdAndPersonId_Id(...)` | `@Query(value = "SELECT * ...", nativeQuery = true)` |
-| **Respeta @Where** |  Sí |  No (bypasea) |
-| **Retorna eliminados** |  No |  Sí |
-| **Cuándo usar** | Operaciones normales | Acceso a eliminados |
-
-#### Uso en Service
-
-```java
-@Service
-public class PersonCertificationServiceImpl {
-    
-    // Listar → Método JPA (solo activos)
-    @Transactional(readOnly = true)
-    public List<PersonCertification> getValidCertifications(Long personId) {
-        return repository.findByPersonId_Id(personId)
-            .stream()
-            .map(mapper::toDto)
-            .collect(Collectors.toList());
-    }
-    
-    // Get by ID → Query nativa (incluye eliminados para auditoría)
-    @Transactional(readOnly = true)
-    public PersonCertification getById(Long personId, Long certificationId) {
-        return repository.findByIdAndPersonIdIncludingDeleted(certificationId, personId)
-            .map(mapper::toDto)
-            .orElseThrow(() -> new ResourceNotFoundException(...));
-    }
-    
-    // Delete → Query nativa (idempotente)
-    @Transactional
-    public Long delete(Long personId, Long certificationId) {
-        PersonCertificationEntity entity = repository
-            .findByIdAndPersonIdIncludingDeleted(certificationId, personId)
-            .orElseThrow(() -> new ResourceNotFoundException(...));
-        
-        entity.setDeletedAt(ZonedDateTime.now());
-        repository.save(entity);
-        return certificationId;
-    }
-}
-```
-
-#### Tabla de Decisión
-
-| Operación | Método a Usar | Razón |
-|-----------|---------------|-------|
-| **Listar todos** | Método JPA | Solo activos |
-| **Buscar por criterio** | Método JPA | Solo activos |
-| **Get by ID** | Query nativa | Incluir eliminados (auditoría) |
-| **Delete** | Query nativa | Idempotente |
-| **Auditoría** | Query nativa | Acceso a historial completo |
-
----
-
-### 4.3. @Transactional
-
-#### Reglas Básicas
+#### Ejemplos:
 
 ```java
 @Service
@@ -1385,16 +1098,6 @@ public class MyServiceImpl {
     public List<MyEntity> getAll(...) { }
 }
 ```
-
-#### Tabla de Uso
-
-| Operación | Anotación | Razón |
-|-----------|-----------|-------|
-| **CREATE** | `@Transactional` | Escribe en DB |
-| **UPDATE** | `@Transactional` | Escribe en DB |
-| **DELETE** | `@Transactional` | Escribe en DB (soft-delete) |
-| **GET** | `@Transactional(readOnly = true)` | Solo lectura, optimización |
-| **LIST** | `@Transactional(readOnly = true)` | Solo lectura, optimización |
 
 #### Errores Comunes
 
@@ -1456,6 +1159,14 @@ public class MyServiceImpl {
 
 ### 4.4. Manejo de Excepciones
 
+#### Reglas
+
+-  Loggear ANTES de lanzar excepción
+-  Mensajes descriptivos y específicos
+-  Incluir IDs relevantes en el mensaje
+-  Usar excepción apropiada según contexto
+-  NO usar excepciones genéricas (`Exception`, `RuntimeException`)
+
 #### Excepciones del Proyecto
 
 | Excepción | HTTP Status | Cuándo Usar | Dónde Lanzar |
@@ -1463,6 +1174,7 @@ public class MyServiceImpl {
 | **ResourceNotFoundException** | 404 | Entity no encontrada | Service |
 | **ConflictException** | 409 | Colisión en DEFAULT mode | Strategy |
 | **IllegalArgumentException** | 400 | Validaciones de negocio | Validator, Service |
+| **IllegalStateException** | 400 | Eliminar reigistro ya eliminado | Service |
 | **TypeNotFoundException** | 404 | Tipo de catálogo no encontrado | Service |
 | **DataBaseViolationException** | 500 | Violación de constraint DB | Repository |
 
@@ -1539,19 +1251,17 @@ public class CertificationValidator {
 }
 ```
 
-#### Reglas
-
--  Loggear ANTES de lanzar excepción
--  Mensajes descriptivos y específicos
--  Incluir IDs relevantes en el mensaje
--  Usar excepción apropiada según contexto
--  NO usar excepciones genéricas (`Exception`, `RuntimeException`)
-
 ---
 
 ## 5. Testing y Documentación
 
 ### 5.1. Tests de Service
+
+**Reglas**:
+-  NO usar `@InjectMocks` cuando hay `@Qualifier`
+-  Instanciar service manualmente en `@BeforeEach`
+-  Usar `@DisplayName` descriptivos
+-  Patrón Arrange-Act-Assert
 
 **Estructura**:
 
@@ -1600,12 +1310,6 @@ class PersonCertificationServiceTest {
 }
 ```
 
-**Reglas**:
--  NO usar `@InjectMocks` cuando hay `@Qualifier`
--  Instanciar service manualmente en `@BeforeEach`
--  Usar `@DisplayName` descriptivos
--  Patrón Arrange-Act-Assert
-
 ---
 
 ### 5.2. Tests de Controller
@@ -1649,41 +1353,42 @@ class CertificationsControllerTest {
 
 ---
 
-### 5.3. JavaDoc
 
-**Estructura**:
+### 5.3. Swagger/OpenAPI
 
-```java
-/**
- * Create a new certification for a person.
- * 
- * <p><b>Business Rules:</b></p>
- * <ul>
- * <li>Validates mutually exclusive fields (percentage vs aliquot)</li>
- * <li>Validates date range (startDate < endDate)</li>
- * <li>Detects and handles collisions based on PersistenceMode</li>
- * </ul>
- * 
- * <p><b>Collision Strategies:</b></p>
- * <ul>
- * <li>DEFAULT: Rejects if collision exists (throws ConflictException)</li>
- * <li>FORCE: Soft-deletes conflicting records and proceeds</li>
- * </ul>
- * 
- * @param personId Person ID
- * @param request Certification data
- * @param mode Collision handling strategy
- * @return ID of the created certification
- * @throws ResourceNotFoundException if person not found
- * @throws IllegalArgumentException if validation fails
- * @throws ConflictException if collision detected (DEFAULT mode)
- */
-public Long create(Long personId, CreateRequest request, PersistenceMode mode);
-```
+**¿Qué es y Por Qué Existe?**
+Swagger (ahora OpenAPI) es una herramienta que genera documentación interactiva de la API REST automáticamente desde el código. Permite a los desarrolladores y QA explorar, probar y entender los endpoints sin necesidad de leer código o documentación externa.
 
----
+**Beneficios principales:**
 
-### 5.4. Swagger/OpenAPI
+- Documentación automática: Se genera desde las anotaciones en el código
+- Interfaz interactiva: Permite probar endpoints directamente desde el navegador
+- Siempre actualizada: Si el código cambia, la documentación también
+- Contrato de API: Define claramente qué espera y retorna cada endpoint
+- Facilita integración: Los consumidores ven ejemplos y pueden probar la API
+- Generación de clientes: Puede generar código cliente automáticamente
+
+**Anotaciones obligatorias:**
+
+- @Tag en cada controller (agrupar endpoints)
+- @Operation en cada endpoint (describir qué hace)
+- @ApiResponses en cada endpoint (documentar códigos HTTP)
+- @Parameter en parámetros (path, query, header)
+- @Schema en campos de DTOs (requests, responses)
+
+**Buenas prácticas:**
+
+- Describir códigos de respuesta específicos del contexto
+- Proporcionar ejemplos realistas
+- Documentar validaciones (min, max, required, etc.)
+- Usar descripciones claras y concisas
+- Mencionar reglas de negocio relevantes
+- Explicar casos edge (null, valores especiales)
+
+**Acceso:**
+
+- Swagger UI: http://localhost:8080/swagger-ui.html
+- OpenAPI JSON: http://localhost:8080/api-docs
 
 **Estructura**:
 
@@ -1710,7 +1415,7 @@ public ResponseEntity<Long> createCertification(
 
 ## 6. Git y Versionado
 
-### 6.1. Conventional Commits
+### 6.1. Conventional Commits // TODO revisar toda esta seccion
 
 **Formato**:
 
@@ -1735,7 +1440,8 @@ test(service): add tests for DEFAULT mode collision handling
 
 ---
 
-### 6.2. Branching Strategy
+### 6.2. Branching Strategy // TODO revisar toda esta seccion
+
 
 ```
 main
@@ -1765,83 +1471,377 @@ main (tag v1.8.12)
 
 **Checklist antes de PR**:
 
-#### Library
-- [ ]  CHANGELOG.md actualizado (al INICIO)
-- [ ]  pom.xml con nueva versión
-- [ ]  DTOs sin `deletedAt`
-- [ ]  Requests con validaciones
-- [ ]  Enums con `@JsonCreator`
-- [ ]  PathV2 en orden alfabético
+# Checklist Antes de Pull Request (PR)
 
-#### Microservice
-- [ ]  Entity con `@Where` (si soft-delete)
-- [ ]  Repository con query nativa (si aplica)
-- [ ]  Mapper con `ignore = true` en campos autogenerados
-- [ ]  Validator con reglas de negocio
-- [ ]  Service con `@Transactional`
-- [ ]  Controller con MediaType
-- [ ]  Tests de Service y Controller
-- [ ]  JavaDoc en métodos públicos
-- [ ]  Swagger/OpenAPI completo
+## 1. Library - Contratos y Modelos
+
+### DTOs y Requests
+- [ ] **Campos con tipos correctos**
+  - [ ] IDs son `Long` (no `Integer`)
+  - [ ] Fechas son `ZonedDateTime` (no `LocalDateTime`)
+  - [ ] Decimales son `BigDecimal` (no `Double` o `Float`)
+  - [ ] Textos son `String`
+  - [ ] Enums para valores predefinidos
+
+- [ ] **Anotaciones Lombok**
+  - [ ] `@Data` en DTOs públicos
+  - [ ] `@NoArgsConstructor` y `@AllArgsConstructor` en DTOs
+  - [ ] `@Builder` en DTOs y Requests
+  - [ ] `@Getter` y `@AllArgsConstructor` en Enums
+
+- [ ] **Validaciones Bean Validation**
+  - [ ] `@NotNull` en campos requeridos
+  - [ ] `@NotBlank` en Strings requeridos
+  - [ ] `@DecimalMin` / `@DecimalMax` en números con rangos
+  - [ ] `@Valid` en listas anidadas
+  - [ ] Mensajes de validación descriptivos
+
+- [ ] **Deserialización de Fechas**
+  - [ ] `@JsonDeserialize(using = StrictZonedDateTimeDeserializer.class)` en campos `ZonedDateTime`
+  - [ ] Formato ISO-8601 documentado en `@Schema`
+
+- [ ] **DTOs Públicos vs Audit**
+  - [ ] DTOs públicos NO incluyen `deletedAt`
+  - [ ] DTOs de auditoría/admin SÍ incluyen `deletedAt`
+
+### Enums
+- [ ] **Anotaciones JSON**
+  - [ ] `@JsonValue` en el campo `value`
+  - [ ] `@JsonCreator` en el método `fromValue()`
+
+- [ ] **Método `fromValue()` implementado**
+  - [ ] Validación de `null` y `empty`
+  - [ ] Búsqueda case-insensitive (`equalsIgnoreCase`)
+  - [ ] Lanza `IllegalArgumentException` con mensaje descriptivo
+  - [ ] Mensaje incluye valores válidos
+
+- [ ] **Documentación**
+  - [ ] JavaDoc en cada valor del enum
+  - [ ] JavaDoc en el método `fromValue()`
+
+### PathV2
+- [ ] **Nuevas rutas agregadas**
+  - [ ] Orden alfabético mantenido
+  - [ ] Naming: `{ENTITY}_PATH`
+  - [ ] Usa `BASE_PATH` para construir
+  - [ ] kebab-case en URLs (`/tax-activities`, no `/taxActivities`)
+
+### Person.java (DTO Principal)
+- [ ] **Listas anidadas**
+  - [ ] `@Valid` en cada lista
+  - [ ] `@Builder.Default` con `new ArrayList<>()`
+  - [ ] Orden alfabético de listas
+
+### CHANGELOG.md ⚠️ OBLIGATORIO
+- [ ] **Actualizado con todos los cambios**
+  - [ ] Categoría correcta: `Added`, `Changed`, `Fixed`, `Removed`
+  - [ ] Descripción clara y concisa
+  - [ ] Nombres de campos, valores de enums, rutas incluidos
+  - [ ] Breaking changes mencionados explícitamente
+  - [ ] Formato con viñetas (bullets)
 
 ---
 
-## 7. Checklist de Revisión
+## 2. Microservice - Implementación
 
-### Por Capa
+### Entities
+- [ ] **Anotaciones JPA**
+  - [ ] `@Entity` y `@Table(name = "...")`
+  - [ ] `@Id` y `@GeneratedValue(strategy = GenerationType.IDENTITY)`
+  - [ ] `@Column(name = "...")` en todos los campos
+  - [ ] `@ManyToOne`, `@OneToMany` con `fetch = FetchType.LAZY`
+  - [ ] `@JsonBackReference` en relaciones bidireccionales
 
-#### Entity
-- [ ] Implementa `HasId`, `HasDeletedAt` (si aplica)
-- [ ] Usa `@Where(clause = "deleted_at IS NULL")` para soft-delete
-- [ ] `@CreationTimestamp` para `createdAt`
-- [ ] `@JsonBackReference` en relaciones bidireccionales
+- [ ] **Interfaces implementadas**
+  - [ ] `implements HasId` (para operaciones genéricas)
+  - [ ] `implements HasDeletedAt` (si usa soft-delete)
 
-#### Repository
-- [ ] Extiende `JpaRepository`
-- [ ] Queries personalizadas documentadas con JavaDoc
-- [ ] Usa `@Param` en queries nativas
-- [ ] Query para incluir eliminados (si aplica)
+- [ ] **Soft-Delete**
+  - [ ] Campo `deletedAt` de tipo `ZonedDateTime`
+  - [ ] NO usar `@Where(clause = "deleted_at IS NULL")` (filtrado explícito preferido)
+  - [ ] `@Column(name = "deleted_at")` sin `updatable = false`
 
-#### Mapper
-- [ ] `@Mapper(componentModel = "spring")`
-- [ ] Campos autogenerados con `ignore = true`
+- [ ] **Timestamps automáticos**
+  - [ ] `@CreationTimestamp` en `createdAt`
+  - [ ] `@Column(updatable = false)` en `createdAt`
 
-#### Validator
-- [ ] Validaciones de reglas de negocio complejas
-- [ ] Mensajes de error claros
-- [ ] Logging con nivel `warn`
+- [ ] **Anotaciones Lombok**
+  - [ ] `@Getter` y `@Setter` (o `@Data` si no hay relaciones bidireccionales)
+  - [ ] `@NoArgsConstructor` y `@AllArgsConstructor`
+  - [ ] `@Builder`
 
-#### Service
-- [ ] Interface con JavaDoc detallado
-- [ ] `@Transactional` en métodos que escriben
-- [ ] `@Transactional(readOnly = true)` en consultas
-- [ ] Validaciones antes de persistir
-- [ ] Logging en inicio/fin de operaciones
-- [ ] Excepciones con mensajes descriptivos
-- [ ] NO retorna `null` en métodos públicos
+### Repositories
+- [ ] **Extensión correcta**
+  - [ ] `extends JpaRepository<Entity, Long>`
+  - [ ] NO extender `JpaRepositoryWithTypeOfManagement` (sistema legacy)
 
-#### Controller
-- [ ] Solo orquestación, sin lógica de negocio
-- [ ] `@Valid` en request bodies
-- [ ] Documentación Swagger completa
-- [ ] HTTP status codes correctos
-- [ ] MediaType en `@PostMapping`, `@GetMapping`, etc.
+- [ ] **Métodos con filtrado explícito**
+  - [ ] Métodos que retornan solo activos: `findBy...AndDeletedAtIsNull`
+  - [ ] Métodos que retornan todos: `findBy...` (sin filtro)
+  - [ ] Queries personalizadas con `@Query` cuando sea necesario
 
-#### Tests
-- [ ] Tests de service con mocks
-- [ ] Tests de controller con MockMvc
-- [ ] Tests de validaciones
-- [ ] Coverage > 80%
+- [ ] **Queries JPQL**
+  - [ ] Filtro explícito `deletedAt IS NULL` cuando corresponda
+  - [ ] `@Param` en todos los parámetros
+  - [ ] JavaDoc explicando qué retorna el método
+
+### Mappers
+- [ ] **Anotaciones MapStruct**
+  - [ ] `@Mapper(componentModel = "spring")`
+  - [ ] `@Mapping(target = "...", ignore = true)` en campos que no se mapean
+
+- [ ] **Métodos de mapeo**
+  - [ ] `toDto(Entity)` - Entity → DTO
+  - [ ] `toEntity(Request)` - Request → Entity
+  - [ ] `toDtoList(List<Entity>)` si es necesario
+
+### Validators
+- [ ] **Reglas de negocio complejas**
+  - [ ] Validaciones mutuamente excluyentes
+  - [ ] Validaciones de rangos de fechas
+  - [ ] Validaciones que dependen de múltiples campos
+
+- [ ] **Logging**
+  - [ ] Log de debug cuando falla validación
+  - [ ] Mensaje descriptivo en excepción
+
+- [ ] **Excepciones**
+  - [ ] Lanza `IllegalArgumentException` con mensaje claro
+  - [ ] NO retorna `null`
+
+### Services
+- [ ] **Anotaciones**
+  - [ ] `@Service` en la implementación
+  - [ ] `@Slf4j` para logging
+  - [ ] `@Transactional` en métodos que escriben
+  - [ ] `@Transactional(readOnly = true)` en métodos de solo lectura
+
+- [ ] **Constructor**
+  - [ ] Constructor explícito si usa `@Qualifier`
+  - [ ] `@RequiredArgsConstructor` si NO usa `@Qualifier`
+
+- [ ] **Lógica de negocio**
+  - [ ] Validaciones ANTES de tocar la BD (fail-fast)
+  - [ ] NO retorna `null` en métodos públicos
+  - [ ] Lanza excepciones descriptivas (`ResourceNotFoundException`, `ConflictException`, etc.)
+
+- [ ] **Logging**
+  - [ ] Log al inicio del método (con parámetros importantes)
+  - [ ] Log al final del método (con resultado)
+  - [ ] Nivel INFO para operaciones importantes
+
+- [ ] **Estrategias (si aplica)**
+  - [ ] Inyección con `@Qualifier` para estrategias específicas
+  - [ ] Selección de estrategia basada en `PersistenceMode`
+
+### Controllers
+- [ ] **Anotaciones REST**
+  - [ ] `@RestController`
+  - [ ] `@RequestMapping(PathV2.XXX_PATH)` usando constante de PathV2
+  - [ ] `@RequiredArgsConstructor`
+  - [ ] `@Validated`
+
+- [ ] **Swagger/OpenAPI**
+  - [ ] `@Tag(name = "...")` a nivel de clase
+  - [ ] `@Operation(summary = "...")` en cada endpoint
+  - [ ] `@ApiResponses` con todos los códigos posibles (200, 201, 400, 404, 409, etc.)
+  - [ ] `@Parameter` en todos los parámetros (path, query, header)
+  - [ ] Descripciones específicas del contexto (no genéricas)
+
+- [ ] **MediaType**
+  - [ ] `consumes = MediaType.APPLICATION_JSON_VALUE` en POST/PUT/PATCH
+  - [ ] `produces = MediaType.APPLICATION_JSON_VALUE` en todos los endpoints
+
+- [ ] **Validación**
+  - [ ] `@Valid` en `@RequestBody`
+  - [ ] `@PathVariable` con tipo correcto (`Long`, no `String` para IDs)
+
+- [ ] **HTTP Status Codes**
+  - [ ] `HttpStatus.CREATED` (201) para POST
+  - [ ] `HttpStatus.OK` (200) para GET, PUT, DELETE
+  - [ ] `HttpStatus.NO_CONTENT` (204) si no hay contenido de respuesta
+
+- [ ] **Solo orquestación**
+  - [ ] NO hay lógica de negocio en el controller
+  - [ ] Solo llama al service y retorna respuesta
+
+### Exception Handling
+- [ ] **ConflictException (si aplica)**
+  - [ ] Incluye IDs de entidades en conflicto
+  - [ ] Mensaje descriptivo
+
+- [ ] **ControllerExceptionHandler**
+  - [ ] Maneja `ConflictException` → HTTP 409
+  - [ ] Maneja `ResourceNotFoundException` → HTTP 404
+  - [ ] Maneja `IllegalArgumentException` → HTTP 400
+  - [ ] Maneja `IllegalStateException` → HTTP 400
+  - [ ] Maneja `MethodArgumentNotValidException` → HTTP 400
+  - [ ] Retorna metadatos detallados en respuesta de error
 
 ---
 
-## Recursos Adicionales
+## 3. Testing
 
-### Documentos del Proyecto
+### Tests Unitarios
+- [ ] **Service Tests**
+  - [ ] Tests para casos de éxito
+  - [ ] Tests para casos de error (excepciones)
+  - [ ] Tests para validaciones
+  - [ ] Mocks de repositorios y dependencias
+  - [ ] Naming: `methodName_ShouldExpectedBehavior_WhenCondition()`
 
-- `SECCION_ESTRATEGIA_COLISIONES.md` - Guía completa del patrón Strategy
-- `SECCION_LIBRARY_ESTRUCTURA.md` - Guía detallada de Library
-- `ANALISIS_REORGANIZACION.md` - Análisis de esta reorganización
+- [ ] **Validator Tests**
+  - [ ] Tests para cada regla de validación
+  - [ ] Tests para casos edge (null, empty, límites)
+
+- [ ] **Detector Tests (si aplica)**
+  - [ ] Tests para detección de colisiones
+  - [ ] Tests para casos de no colisión
+  - [ ] Tests para casos edge (fechas null, etc.)
+
+### Tests de Integración
+- [ ] **Controller Tests**
+  - [ ] Tests para cada endpoint (POST, GET, PUT, DELETE)
+  - [ ] Tests para códigos de respuesta (200, 201, 400, 404, 409)
+  - [ ] Tests con datos válidos e inválidos
+
+---
+
+## 4. Código y Estilo
+
+### Convenciones de Código
+- [ ] **Naming**
+  - [ ] Clases: PascalCase (`PersonCertificationEntity`)
+  - [ ] Métodos: camelCase (`createCertification`)
+  - [ ] Constantes: UPPER_SNAKE_CASE (`CERTIFICATIONS_PATH`)
+  - [ ] Variables: camelCase (`personId`)
+
+- [ ] **Imports**
+  - [ ] Sin imports no usados
+  - [ ] Organizados alfabéticamente
+  - [ ] Sin imports con `*` (wildcard)
+
+- [ ] **Formato**
+  - [ ] Indentación consistente (4 espacios)
+  - [ ] Sin líneas vacías innecesarias
+  - [ ] Sin código comentado (eliminar o justificar)
+
+### Documentación
+- [ ] **JavaDoc**
+  - [ ] En clases públicas (qué hace, para qué sirve)
+  - [ ] En métodos públicos complejos
+  - [ ] En interfaces (especialmente estrategias, detectores)
+  - [ ] En enums (cada valor documentado)
+
+- [ ] **Comentarios**
+  - [ ] Solo cuando agregan valor (explican "por qué", no "qué")
+  - [ ] Actualizados (no obsoletos)
+
+---
+
+## 5. Git y Versionado
+
+### Commits
+- [ ] **Conventional Commits**
+  - [ ] Formato: `type(scope): message`
+  - [ ] Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
+  - [ ] Scope: módulo afectado (`certifications`, `library`, etc.)
+  - [ ] Mensaje descriptivo y conciso
+
+- [ ] **Commits atómicos**
+  - [ ] Cada commit representa un cambio lógico completo
+  - [ ] No mezclar cambios no relacionados
+
+### Branch
+- [ ] **Naming**
+  - [ ] Formato: `feature/TICKET-123-description` o `fix/TICKET-123-description`
+  - [ ] Descripción en kebab-case
+
+- [ ] **Actualizada**
+  - [ ] Merge/rebase con `develop` o `main` antes del PR
+  - [ ] Sin conflictos
+
+### Pull Request
+- [ ] **Título descriptivo**
+  - [ ] Formato: `[TICKET-123] Description of changes`
+  - [ ] Describe qué se hizo, no cómo
+
+- [ ] **Descripción completa**
+  - [ ] Qué se cambió y por qué
+  - [ ] Cómo probar los cambios
+  - [ ] Breaking changes mencionados
+  - [ ] Screenshots si aplica (UI changes)
+
+---
+
+## 6. Build y Compilación
+
+- [ ] **Build exitoso**
+  - [ ] `mvn clean compile` sin errores
+  - [ ] `mvn clean install` sin errores
+
+- [ ] **Tests pasan**
+  - [ ] `mvn test` sin fallos
+  - [ ] Cobertura de código aceptable (>80% en código nuevo)
+
+- [ ] **Sin warnings**
+  - [ ] Sin warnings de compilación
+  - [ ] Sin warnings de deprecation (o justificados)
+
+---
+
+## 7. Revisión Final
+
+- [ ] **Código revisado**
+  - [ ] Leí todo el código que estoy subiendo
+  - [ ] Eliminé código de debug/testing
+  - [ ] Eliminé console.logs, prints, etc.
+
+- [ ] **Documentación actualizada**
+  - [ ] README.md actualizado si es necesario
+  - [ ] CHANGELOG.md actualizado (OBLIGATORIO en library)
+  - [ ] Documentación técnica actualizada si es necesario
+
+- [ ] **No hay secretos**
+  - [ ] Sin credenciales hardcodeadas
+  - [ ] Sin tokens, passwords, API keys
+  - [ ] Sin URLs de producción hardcodeadas
+
+---
+
+##  Checklist Rápido (Mínimo Obligatorio)
+
+### Library
+- [ ] CHANGELOG.md actualizado
+- [ ] DTOs con validaciones correctas
+- [ ] Enums con `@JsonValue` y `@JsonCreator`
+- [ ] PathV2 actualizado (si aplica)
+
+### Microservice
+- [ ] Entities con soft-delete correcto
+- [ ] Repositories con filtrado explícito
+- [ ] Services con `@Transactional`
+- [ ] Controllers con Swagger completo
+- [ ] Tests unitarios para código nuevo
+
+### General
+- [ ] Build exitoso
+- [ ] Tests pasan
+- [ ] Commits con Conventional Commits
+- [ ] PR con descripción completa
+
+---
+
+##  Antes de Hacer Click en "Create Pull Request"
+
+**Pregunte:**
+1. ¿Actualicé el CHANGELOG.md? (si es library)
+2. ¿Todos los tests pasan?
+3. ¿El build compila sin errores?
+4. ¿Documenté con Swagger todos los endpoints nuevos?
+5. ¿Revisé todo el código que estoy subiendo?
+
+**Si responde SÍ a todo, está listo para crear el PR!** 
 
 ---
 
@@ -1861,12 +1861,12 @@ main (tag v1.8.12)
 2. Asignar revisor
 3. Revisor verifica checklist
 4. Discutir cambios necesarios
-5. Aprobar y merge
+5. Aprobar y merge si depende del equipo
 
 ---
 
 **Versión**: 2.0  
-**Última actualización**: 2024-12-15  
+**Última actualización**: 2024-12-17  
 **Próxima revisión**: Trimestral o cuando sea necesario
 
 ---
