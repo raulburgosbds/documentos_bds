@@ -304,7 +304,6 @@ import ar.com.bds.lib.peoplecenter.model.interfaces.HasType;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Where(clause = "deleted_at IS NULL")
 public class PersonCertificationEntity implements HasId, HasDeleted, HasType {
     
     @Id
@@ -371,7 +370,6 @@ import ar.com.bds.lib.peoplecenter.model.interfaces.HasId;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Where(clause = "deleted_at IS NULL")
 public class PersonCertificationEntity implements HasId, HasDeletedAt {
     
     @Id
@@ -429,7 +427,7 @@ public class PersonCertificationEntity implements HasId, HasDeletedAt {
 | **Método isDeleted()** | Implementar manualmente | Default method |
 | **Método setDeleted()** | Implementar manualmente | No necesario |
 | **Método getType()** | Implementar manualmente | No necesario |
-| **Líneas de código** | ~15 líneas de métodos | 0 líneas (todo automático) |
+
 
 ### Beneficios
 

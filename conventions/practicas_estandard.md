@@ -1475,268 +1475,32 @@ main (tag v1.8.12)
 
 ## 1. Library - Contratos y Modelos
 
-### DTOs y Requests
-- [ ] **Campos con tipos correctos**
-  - [ ] IDs son `Long` (no `Integer`)
-  - [ ] Fechas son `ZonedDateTime` (no `LocalDateTime`)
-  - [ ] Decimales son `BigDecimal` (no `Double` o `Float`)
-  - [ ] Textos son `String`
-  - [ ] Enums para valores predefinidos
+- [ ] Nuevas rutas agregadas a PathV2
 
-- [ ] **Anotaciones Lombok**
-  - [ ] `@Data` en DTOs públicos
-  - [ ] `@NoArgsConstructor` y `@AllArgsConstructor` en DTOs
-  - [ ] `@Builder` en DTOs y Requests
-  - [ ] `@Getter` y `@AllArgsConstructor` en Enums
-
-- [ ] **Validaciones Bean Validation**
-  - [ ] `@NotNull` en campos requeridos
-  - [ ] `@NotBlank` en Strings requeridos
-  - [ ] `@DecimalMin` / `@DecimalMax` en números con rangos
-  - [ ] `@Valid` en listas anidadas
-  - [ ] Mensajes de validación descriptivos
-
-- [ ] **Deserialización de Fechas**
-  - [ ] `@JsonDeserialize(using = StrictZonedDateTimeDeserializer.class)` en campos `ZonedDateTime`
-  - [ ] Formato ISO-8601 documentado en `@Schema`
-
-- [ ] **DTOs Públicos vs Audit**
-  - [ ] DTOs públicos NO incluyen `deletedAt`
-  - [ ] DTOs de auditoría/admin SÍ incluyen `deletedAt`
-
-### Enums
-- [ ] **Anotaciones JSON**
-  - [ ] `@JsonValue` en el campo `value`
-  - [ ] `@JsonCreator` en el método `fromValue()`
-
-- [ ] **Método `fromValue()` implementado**
-  - [ ] Validación de `null` y `empty`
-  - [ ] Búsqueda case-insensitive (`equalsIgnoreCase`)
-  - [ ] Lanza `IllegalArgumentException` con mensaje descriptivo
-  - [ ] Mensaje incluye valores válidos
-
-- [ ] **Documentación**
-  - [ ] JavaDoc en cada valor del enum
-  - [ ] JavaDoc en el método `fromValue()`
-
-### PathV2
-- [ ] **Nuevas rutas agregadas**
-  - [ ] Orden alfabético mantenido
-  - [ ] Naming: `{ENTITY}_PATH`
-  - [ ] Usa `BASE_PATH` para construir
-  - [ ] kebab-case en URLs (`/tax-activities`, no `/taxActivities`)
-
-### Person.java (DTO Principal)
-- [ ] **Listas anidadas**
-  - [ ] `@Valid` en cada lista
-  - [ ] `@Builder.Default` con `new ArrayList<>()`
-  - [ ] Orden alfabético de listas
-
-### CHANGELOG.md ⚠️ OBLIGATORIO
-- [ ] **Actualizado con todos los cambios**
-  - [ ] Categoría correcta: `Added`, `Changed`, `Fixed`, `Removed`
-  - [ ] Descripción clara y concisa
-  - [ ] Nombres de campos, valores de enums, rutas incluidos
-  - [ ] Breaking changes mencionados explícitamente
-  - [ ] Formato con viñetas (bullets)
-
+- [ ] Lista agregada en orden alfabético a Person.java
+- [ ] CHANGELOG.md Actualizado con todos los cambios
+- [ ] Version actualizada en POM.XML
 ---
 
 ## 2. Microservice - Implementación
 
-### Entities
-- [ ] **Anotaciones JPA**
-  - [ ] `@Entity` y `@Table(name = "...")`
-  - [ ] `@Id` y `@GeneratedValue(strategy = GenerationType.IDENTITY)`
-  - [ ] `@Column(name = "...")` en todos los campos
-  - [ ] `@ManyToOne`, `@OneToMany` con `fetch = FetchType.LAZY`
-  - [ ] `@JsonBackReference` en relaciones bidireccionales
+- [ ] Version de libray actualizada en POM.XML de microservice
+- [ ] Version de microservice actualizada en POM.XML de microservice
 
-- [ ] **Interfaces implementadas**
-  - [ ] `implements HasId` (para operaciones genéricas)
-  - [ ] `implements HasDeletedAt` (si usa soft-delete)
+- [ ] NO usar @where() en entities
+- [ ] NO extender `JpaRepositoryWithTypeOfManagement` (sistema legacy) en controllers
 
-- [ ] **Soft-Delete**
-  - [ ] Campo `deletedAt` de tipo `ZonedDateTime`
-  - [ ] NO usar `@Where(clause = "deleted_at IS NULL")` (filtrado explícito preferido)
-  - [ ] `@Column(name = "deleted_at")` sin `updatable = false`
+- [ ] `@Slf4j` para logging en services
+- [ ] `@Transactional` en métodos del service que escriben
+- [ ] `@Transactional(readOnly = true)` en métodos del service de solo lectura
+- [ ] Log al inicio y final de métodos del servide, nivel INFO para operaciones importantes
+- [ ] Selección de estrategia basada en `PersistenceMode` si aplica en el service
 
-- [ ] **Timestamps automáticos**
-  - [ ] `@CreationTimestamp` en `createdAt`
-  - [ ] `@Column(updatable = false)` en `createdAt`
+- [ ] Documentacion de swagger completa
+- [ ] `consumes/produces = MediaType.APPLICATION_JSON_VALUE` en POST/PUT/PATCH/GET
 
-- [ ] **Anotaciones Lombok**
-  - [ ] `@Getter` y `@Setter` (o `@Data` si no hay relaciones bidireccionales)
-  - [ ] `@NoArgsConstructor` y `@AllArgsConstructor`
-  - [ ] `@Builder`
-
-### Repositories
-- [ ] **Extensión correcta**
-  - [ ] `extends JpaRepository<Entity, Long>`
-  - [ ] NO extender `JpaRepositoryWithTypeOfManagement` (sistema legacy)
-
-- [ ] **Métodos con filtrado explícito**
-  - [ ] Métodos que retornan solo activos: `findBy...AndDeletedAtIsNull`
-  - [ ] Métodos que retornan todos: `findBy...` (sin filtro)
-  - [ ] Queries personalizadas con `@Query` cuando sea necesario
-
-- [ ] **Queries JPQL**
-  - [ ] Filtro explícito `deletedAt IS NULL` cuando corresponda
-  - [ ] `@Param` en todos los parámetros
-  - [ ] JavaDoc explicando qué retorna el método
-
-### Mappers
-- [ ] **Anotaciones MapStruct**
-  - [ ] `@Mapper(componentModel = "spring")`
-  - [ ] `@Mapping(target = "...", ignore = true)` en campos que no se mapean
-
-- [ ] **Métodos de mapeo**
-  - [ ] `toDto(Entity)` - Entity → DTO
-  - [ ] `toEntity(Request)` - Request → Entity
-  - [ ] `toDtoList(List<Entity>)` si es necesario
-
-### Validators
-- [ ] **Reglas de negocio complejas**
-  - [ ] Validaciones mutuamente excluyentes
-  - [ ] Validaciones de rangos de fechas
-  - [ ] Validaciones que dependen de múltiples campos
-
-- [ ] **Logging**
-  - [ ] Log de debug cuando falla validación
-  - [ ] Mensaje descriptivo en excepción
-
-- [ ] **Excepciones**
-  - [ ] Lanza `IllegalArgumentException` con mensaje claro
-  - [ ] NO retorna `null`
-
-### Services
-- [ ] **Anotaciones**
-  - [ ] `@Service` en la implementación
-  - [ ] `@Slf4j` para logging
-  - [ ] `@Transactional` en métodos que escriben
-  - [ ] `@Transactional(readOnly = true)` en métodos de solo lectura
-
-- [ ] **Constructor**
-  - [ ] Constructor explícito si usa `@Qualifier`
-  - [ ] `@RequiredArgsConstructor` si NO usa `@Qualifier`
-
-- [ ] **Lógica de negocio**
-  - [ ] Validaciones ANTES de tocar la BD (fail-fast)
-  - [ ] NO retorna `null` en métodos públicos
-  - [ ] Lanza excepciones descriptivas (`ResourceNotFoundException`, `ConflictException`, etc.)
-
-- [ ] **Logging**
-  - [ ] Log al inicio del método (con parámetros importantes)
-  - [ ] Log al final del método (con resultado)
-  - [ ] Nivel INFO para operaciones importantes
-
-- [ ] **Estrategias (si aplica)**
-  - [ ] Inyección con `@Qualifier` para estrategias específicas
-  - [ ] Selección de estrategia basada en `PersistenceMode`
-
-### Controllers
-- [ ] **Anotaciones REST**
-  - [ ] `@RestController`
-  - [ ] `@RequestMapping(PathV2.XXX_PATH)` usando constante de PathV2
-  - [ ] `@RequiredArgsConstructor`
-  - [ ] `@Validated`
-
-- [ ] **Swagger/OpenAPI**
-  - [ ] `@Tag(name = "...")` a nivel de clase
-  - [ ] `@Operation(summary = "...")` en cada endpoint
-  - [ ] `@ApiResponses` con todos los códigos posibles (200, 201, 400, 404, 409, etc.)
-  - [ ] `@Parameter` en todos los parámetros (path, query, header)
-  - [ ] Descripciones específicas del contexto (no genéricas)
-
-- [ ] **MediaType**
-  - [ ] `consumes = MediaType.APPLICATION_JSON_VALUE` en POST/PUT/PATCH
-  - [ ] `produces = MediaType.APPLICATION_JSON_VALUE` en todos los endpoints
-
-- [ ] **Validación**
-  - [ ] `@Valid` en `@RequestBody`
-  - [ ] `@PathVariable` con tipo correcto (`Long`, no `String` para IDs)
-
-- [ ] **HTTP Status Codes**
-  - [ ] `HttpStatus.CREATED` (201) para POST
-  - [ ] `HttpStatus.OK` (200) para GET, PUT, DELETE
-  - [ ] `HttpStatus.NO_CONTENT` (204) si no hay contenido de respuesta
-
-- [ ] **Solo orquestación**
-  - [ ] NO hay lógica de negocio en el controller
-  - [ ] Solo llama al service y retorna respuesta
-
-### Exception Handling
-- [ ] **ConflictException (si aplica)**
-  - [ ] Incluye IDs de entidades en conflicto
-  - [ ] Mensaje descriptivo
-
-- [ ] **ControllerExceptionHandler**
-  - [ ] Maneja `ConflictException` → HTTP 409
-  - [ ] Maneja `ResourceNotFoundException` → HTTP 404
-  - [ ] Maneja `IllegalArgumentException` → HTTP 400
-  - [ ] Maneja `IllegalStateException` → HTTP 400
-  - [ ] Maneja `MethodArgumentNotValidException` → HTTP 400
-  - [ ] Retorna metadatos detallados en respuesta de error
-
----
-
-## 3. Testing
-
-### Tests Unitarios
-- [ ] **Service Tests**
-  - [ ] Tests para casos de éxito
-  - [ ] Tests para casos de error (excepciones)
-  - [ ] Tests para validaciones
-  - [ ] Mocks de repositorios y dependencias
-  - [ ] Naming: `methodName_ShouldExpectedBehavior_WhenCondition()`
-
-- [ ] **Validator Tests**
-  - [ ] Tests para cada regla de validación
-  - [ ] Tests para casos edge (null, empty, límites)
-
-- [ ] **Detector Tests (si aplica)**
-  - [ ] Tests para detección de colisiones
-  - [ ] Tests para casos de no colisión
-  - [ ] Tests para casos edge (fechas null, etc.)
-
-### Tests de Integración
-- [ ] **Controller Tests**
-  - [ ] Tests para cada endpoint (POST, GET, PUT, DELETE)
-  - [ ] Tests para códigos de respuesta (200, 201, 400, 404, 409)
-  - [ ] Tests con datos válidos e inválidos
-
----
-
-## 4. Código y Estilo
-
-### Convenciones de Código
-- [ ] **Naming**
-  - [ ] Clases: PascalCase (`PersonCertificationEntity`)
-  - [ ] Métodos: camelCase (`createCertification`)
-  - [ ] Constantes: UPPER_SNAKE_CASE (`CERTIFICATIONS_PATH`)
-  - [ ] Variables: camelCase (`personId`)
-
-- [ ] **Imports**
-  - [ ] Sin imports no usados
-  - [ ] Organizados alfabéticamente
-  - [ ] Sin imports con `*` (wildcard)
-
-- [ ] **Formato**
-  - [ ] Indentación consistente (4 espacios)
-  - [ ] Sin líneas vacías innecesarias
-  - [ ] Sin código comentado (eliminar o justificar)
-
-### Documentación
-- [ ] **JavaDoc**
-  - [ ] En clases públicas (qué hace, para qué sirve)
-  - [ ] En métodos públicos complejos
-  - [ ] En interfaces (especialmente estrategias, detectores)
-  - [ ] En enums (cada valor documentado)
-
-- [ ] **Comentarios**
-  - [ ] Solo cuando agregan valor (explican "por qué", no "qué")
-  - [ ] Actualizados (no obsoletos)
-
+- [ ] Tests Unitarios
+- [ ] Tests de integracion (controller test)
 ---
 
 ## 5. Git y Versionado
@@ -1784,9 +1548,7 @@ main (tag v1.8.12)
   - [ ] `mvn test` sin fallos
   - [ ] Cobertura de código aceptable (>80% en código nuevo)
 
-- [ ] **Sin warnings**
-  - [ ] Sin warnings de compilación
-  - [ ] Sin warnings de deprecation (o justificados)
+
 
 ---
 
@@ -1802,10 +1564,7 @@ main (tag v1.8.12)
   - [ ] CHANGELOG.md actualizado (OBLIGATORIO en library)
   - [ ] Documentación técnica actualizada si es necesario
 
-- [ ] **No hay secretos**
-  - [ ] Sin credenciales hardcodeadas
-  - [ ] Sin tokens, passwords, API keys
-  - [ ] Sin URLs de producción hardcodeadas
+
 
 ---
 
